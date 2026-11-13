@@ -44,7 +44,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   let contacts = readArray('qinan-contacts').filter(c=>c && typeof c.name==='string' && typeof c.phone==='string');
   const legacyRecords = readArray('qinan-demo-history').filter(r=>r && typeof r.id==='string' && r.demo);
   let destroyed=false, startupPending=!!startReady;
-  let uploadIsland=null, uploadHost=null, statusIsland=null, pickerPending=false, pickerReturnTimer=null, dragDepth=0;
+  let uploadIsland=null, uploadHost=null, materialTabs=null, materialTabsHost=null, statusIsland=null, pickerPending=false, pickerReturnTimer=null, dragDepth=0;
   let page='home', routeRevision=0, viewController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
@@ -136,6 +136,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   function disposePracticeFaq(){practiceFaq?.destroy();practiceFaq=null;}
   function disposeIslands(){
     clearTimeout(pickerReturnTimer);pickerReturnTimer=null;pickerPending=false;dragDepth=0;
+    materialTabs?.destroy();materialTabs=null;materialTabsHost=null;
     uploadIsland?.destroy();uploadIsland=null;uploadHost=null;
     statusIsland?.destroy();statusIsland=null;disposePracticeIslands();
   }
@@ -230,14 +231,36 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     syncType();renderFile();
   }
   function selectType(next){
-    if(type===next||activeTask)return;
+    if(!fileTypes[next]||type===next||activeTask||destroyed||page!=='check'||entry.pending)return;
     finishPicker();dragDepth=0;type=next;clearFile();fileError='';
     // Keep the same tablist, panel, dropzone and surrounding scene in the DOM.
     syncType();renderFile();
   }
+  function materialTabsProps(host){
+    return {value:type,disabled:!!activeTask,paused:!motionEnabled(),onChange(next){
+      if(host!==materialTabsHost||!host.isConnected)return;
+      selectType(next);
+    }};
+  }
+  function updateMaterialTabs(){
+    if(materialTabs&&materialTabsHost?.isConnected)materialTabs.update(materialTabsProps(materialTabsHost));
+  }
   function syncType(){
-    $$('.type-tab').forEach(tab=>{const selected=tab.dataset.type===type;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;});
-    const marker=$('.tab-marker');if(marker)marker.style.transform=`translateX(${Object.keys(fileTypes).indexOf(type)*100}%)`;
+    const host=body.querySelector('.type-tabs');
+    if(host&&islands.mountMaterialTabs&&!entry.pending){
+      if(materialTabsHost!==host){
+        const focusedType=host.contains(document.activeElement)?document.activeElement.dataset.type:null;
+        materialTabs?.destroy();materialTabsHost=host;
+        materialTabs=islands.mountMaterialTabs(host,materialTabsProps(host));
+        if(focusedType)$(`#type-${focusedType}`)?.focus({preventScroll:true});
+      }else updateMaterialTabs();
+    }
+    // React owns its descendants while mounted; keep the native chunk fallback
+    // fully usable without competing DOM writes or replacing the upload panel.
+    if(!materialTabs){
+      $$('.type-tab').forEach(tab=>{const selected=tab.dataset.type===type;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;});
+      const marker=$('.tab-marker');if(marker)marker.style.transform=`translateX(${Object.keys(fileTypes).indexOf(type)*100}%)`;
+    }
     $('#uploadPanel')?.setAttribute('aria-labelledby',`type-${type}`);
     $('#fileInput').accept=fileTypes[type].accept;
   }
@@ -635,9 +658,10 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   function pauseAmbient(){homeMotion.finish?.();$$('.portal-node').forEach(node=>{utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');});}
   function syncMotion(){
     document.body.classList.toggle('motion-off',paused||mediaQuery.matches);homeMotion.setPaused?.(!motionEnabled());entry.setPaused(!motionEnabled());guide?.setPaused(!motionEnabled());
-    $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
-    $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
-    updateUploadIsland();statusIsland?.update(taskStatusProps());practiceCounter?.update(counterProps());practiceFaq?.update({paused:!motionEnabled()});
+    const motionOff=!motionEnabled();
+    $('#motionButton').innerHTML=icon(motionOff?'play':'pause')+`<span class="motion-button-label">${motionOff?'恢复动效':'暂停动效'}</span>`;$('#motionButton').setAttribute('aria-label',motionOff?'恢复动态效果':'暂停动态效果');$('#motionButton').dataset.paused=String(motionOff);
+    $('#motionState').textContent=motionOff?'MOTION OFF':'MOTION ON';
+    updateMaterialTabs();updateUploadIsland();statusIsland?.update(taskStatusProps());practiceCounter?.update(counterProps());practiceFaq?.update({paused:!motionEnabled()});
     if(!motionEnabled()){settleModal();finishQuestionSwap();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');}
   }
   function toggleMotion(){paused=!paused;setStored('qinan-motion-paused',String(paused));syncMotion();}
@@ -679,7 +703,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   const afterPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    refreshIslands(){if(destroyed||startupPending)return;guide?.refreshIslands();if(entry.pending){entry.refreshIslands();return;}if(page==='check'){if(activeTask)renderProcessing();else renderFile();}else if(page==='practice')refreshPracticeIslands();},
+    refreshIslands(){if(destroyed||startupPending)return;guide?.refreshIslands();if(entry.pending){entry.refreshIslands();return;}if(page==='check'){if(activeTask)renderProcessing();else{syncType();renderFile();}}else if(page==='practice')refreshPracticeIslands();},
     destroy(){entry.destroy();guide?.destroy();guide=null;settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;viewController?.abort();api.destroy();homeMotion.destroy?.();clearFile();clearTimeout(toastTimer);utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

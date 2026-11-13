@@ -7,7 +7,10 @@ import GridReveal from './rare-ui/grid-reveal';
 import AiStatus from './rare-ui/ai-status';
 import AnimatedCounter from './rare-ui/animated-counter';
 import Faq from './rare-ui/faq';
+import MatrixOrb from './rare-ui/matrix-orb';
+import { GooeyNav } from './rare-ui/gooey-nav';
 import { MotionPausedContext } from './rare-ui/motion-settings';
+import { paths } from './icons';
 import './rare-ui/utilities.css';
 import './rare-ui/islands.css';
 
@@ -102,6 +105,25 @@ function FaqIsland({ items = [], value, onValueChange, paused, accent = '#c2ff00
   </MotionBoundary>;
 }
 
+const MATERIAL_KINDS = ['audio', 'video', 'image', 'chat'];
+const MATERIAL_ITEMS = MATERIAL_KINDS.map(id => ({
+  id, label: id === 'audio' ? '声音' : TYPE_LABELS[id],
+  icon: <svg className="qinan-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={paths[id === 'audio' ? 'sound' : id]} /></svg>,
+}));
+
+function MaterialTabsIsland({ value = 'audio', disabled = false, paused, onChange }) {
+  const index = MATERIAL_KINDS.indexOf(value);
+  return <MotionBoundary paused={paused}>
+    <GooeyNav items={MATERIAL_ITEMS} value={index < 0 ? 0 : index} disabled={!!disabled}
+      onChange={next => onChange?.(MATERIAL_KINDS[next])} />
+  </MotionBoundary>;
+}
+
+function MatrixFieldIsland({ paused, activePortal = null }) {
+  const portal = ['check', 'contacts', 'practice', 'history'].includes(activePortal) ? activePortal : null;
+  return <MotionBoundary paused={paused}><MatrixOrb activePortal={portal} /></MotionBoundary>;
+}
+
 /** Owns only host descendants. Call destroy BEFORE replacing/removing host markup. */
 function mountIsland(host, Component, initialProps, upload = false) {
   let props = { ...initialProps };
@@ -141,3 +163,44 @@ export function mountUpload(host, props = {}) { return mountIsland(host, UploadI
 export function mountStatus(host, props = {}) { return mountIsland(host, StatusIsland, props); }
 export function mountCounter(host, props = {}) { return mountIsland(host, CounterIsland, props); }
 export function mountFaq(host, props = {}) { return mountIsland(host, FaqIsland, props); }
+
+export function mountMaterialTabs(host, props = {}) {
+  // The native fallback owns these on the host; the mounted component has its
+  // own single tablist. Restore the original attributes before fallback reuse.
+  const saved = ['role', 'aria-label', 'aria-orientation'].map(name => [name, host.getAttribute(name)]);
+  const restore = () => saved.forEach(([name, value]) => value === null ? host.removeAttribute(name) : host.setAttribute(name, value));
+  saved.forEach(([name]) => host.removeAttribute(name));
+  host.classList.add('qi-material-tabs-host');
+  let island;
+  try { island = mountIsland(host, MaterialTabsIsland, props); }
+  catch (error) { host.classList.remove('qi-material-tabs-host'); restore(); throw error; }
+  let destroyed = false;
+  return {
+    update: next => island.update(next),
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      island.destroy();
+      host.classList.remove('qi-material-tabs-host');
+      restore();
+    },
+  };
+}
+
+export function mountMatrixField(host, props = {}) {
+  const hidden = host.getAttribute('aria-hidden');
+  host.setAttribute('aria-hidden', 'true');
+  host.classList.add('qi-matrix-host');
+  const island = mountIsland(host, MatrixFieldIsland, props);
+  let destroyed = false;
+  return {
+    update: next => island.update(next),
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      island.destroy();
+      host.classList.remove('qi-matrix-host');
+      if (hidden === null) host.removeAttribute('aria-hidden'); else host.setAttribute('aria-hidden', hidden);
+    },
+  };
+}

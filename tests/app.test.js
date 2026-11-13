@@ -53,6 +53,74 @@ test('type tabs support arrow keys without rebuilding the page',async t=>{
   const panel=$('#uploadPanel');$('#type-audio').dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
   assert.strictEqual($('#uploadPanel'),panel);assert.equal(w.document.activeElement.id,'type-video');
   assert.equal($('#type-video').getAttribute('aria-selected'),'true');
+  assert.equal($('.tab-marker').style.transform,'translateX(100%)','native tabs keep their sliding marker without the optional chunk');
+});
+
+function trackedMaterialTabs(){
+  const tabs=[];
+  return {tabs,mountMaterialTabs(host,initial){
+    const entry={host,props:initial,destroyed:false,connectedOnDestroy:false,updates:0};tabs.push(entry);
+    host.innerHTML=['audio','video','image','chat'].map(kind=>`<button id="type-${kind}" class="type-tab" data-type="${kind}" role="tab" aria-controls="uploadPanel">${kind}</button>`).join('');
+    const update=props=>{
+      entry.props={...entry.props,...props};entry.updates++;
+      host.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-selected',String(button.dataset.type===entry.props.value));button.tabIndex=button.dataset.type===entry.props.value?0:-1;button.disabled=!!entry.props.disabled;});
+    };
+    host.querySelectorAll('button').forEach(button=>button.onclick=()=>entry.props.onChange(button.dataset.type));update(initial);
+    return {update,destroy(){entry.destroyed=true;entry.connectedOnDestroy=host.isConnected;host.replaceChildren();}};
+  }};
+}
+
+test('material tabs stay controlled in one island, preserve the panel, and dispose before leaving',async t=>{
+  const islands={...trackedIslands(),...trackedMaterialTabs()};
+  const {$,goto,w,selectFile,revoked,animations,app}=setup(t,{islands});await goto('check');
+  const tabs=islands.tabs[0],host=$('.type-tabs'),panel=$('#uploadPanel'),dropzone=$('#dropzone'),count=animations.length;
+  assert.equal(tabs.props.value,'audio');assert.equal(tabs.props.disabled,false);
+  $('#type-image').click();await selectFile(new w.File(['image'],'material.png',{type:'image/png'}));
+  const oldUrl=islands.uploads[0].props.url;
+  $('#type-video').click();
+  assert.equal(tabs.props.value,'video');assert.equal($('#type-video').getAttribute('aria-selected'),'true');assert.equal($('#type-video').tabIndex,0);
+  assert.equal($('#uploadPanel').getAttribute('aria-labelledby'),'type-video');assert.equal($('#fileInput').accept,'.mp4,.mov,.avi,.webm');
+  assert.equal(islands.uploads[0].props.file,null);assert.ok(revoked.includes(oldUrl));assert.equal($('#analyzeButton').disabled,true);
+  tabs.props.onChange('unsupported');assert.equal(tabs.props.value,'video');
+  assert.strictEqual($('.type-tabs'),host);assert.strictEqual($('#uploadPanel'),panel);assert.strictEqual($('#dropzone'),dropzone);
+  app.refreshIslands();app.refreshIslands();assert.equal(islands.tabs.length,1);assert.equal(islands.uploads.length,1);assert.equal(animations.length,count);
+  $('#motionButton').click();assert.equal(tabs.props.paused,true);const stale=tabs.props.onChange;
+  await goto('contacts');assert.equal(tabs.destroyed,true);assert.equal(tabs.connectedOnDestroy,true);
+  stale('chat');assert.ok($('#contactForm'));assert.equal($('#fileInput').accept,'.mp4,.mov,.avi,.webm');
+});
+
+test('a late material tab chunk waits for the module intro and then mounts only once',async t=>{
+  const islands={};const {$,goto,app}=setup(t,{islands,entryDuration:700,animate(target,params){
+    if(!target?.nodeType&&!Array.isArray(target)&&params.duration===700)return {cancel(){}};
+    params.onComplete?.();return {cancel(){},pause(){},resume(){}};
+  }});
+  await goto('check');const intro=$('.workspace-entry');const loaded=trackedMaterialTabs();Object.assign(islands,loaded);
+  app.refreshIslands();app.refreshIslands();assert.equal(loaded.tabs.length,0);assert.strictEqual($('.workspace-entry'),intro);
+  $('[data-entry-skip]').click();assert.equal(loaded.tabs.length,1);assert.equal($('.workspace-entry'),null);
+  $('#type-chat').click();app.refreshIslands();assert.equal(loaded.tabs.length,1);assert.equal(loaded.tabs[0].props.value,'chat');assert.equal($('.workspace-entry'),null);
+});
+
+test('hydrating an already focused native tab preserves its selection and keyboard focus',async t=>{
+  const islands={};const {$,goto,w,app}=setup(t,{islands});await goto('check');$('#type-image').click();$('#type-image').focus();
+  const loaded=trackedMaterialTabs();Object.assign(islands,loaded);app.refreshIslands();
+  assert.equal(loaded.tabs.length,1);assert.equal(loaded.tabs[0].props.value,'image');assert.equal(w.document.activeElement.id,'type-image');
+  assert.equal($('#type-image').getAttribute('aria-selected'),'true');assert.equal($('#uploadPanel').getAttribute('aria-labelledby'),'type-image');
+});
+
+test('submitting materials unmounts its tabs while connected and ignores callbacks from the old root',async t=>{
+  const submit=pending(),islands={...trackedIslands(),...trackedMaterialTabs()};
+  const {$,goto,w,selectFile}=setup(t,{islands,fetch:()=>submit.promise});await goto('check');
+  const tabs=islands.tabs[0],stale=tabs.props.onChange;await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();
+  assert.equal(tabs.destroyed,true);assert.equal(tabs.connectedOnDestroy,true);assert.ok($('#progressTitle'));
+  stale('image');assert.ok($('#progressTitle'));assert.equal($('#fileInput').accept,'.wav,.mp3,.m4a,.flac,.ogg');
+  submit.reject(new TypeError('offline'));await tick();assert.equal(islands.tabs.length,2);assert.equal(islands.tabs[1].props.value,'audio');
+});
+
+test('a stored motion pause remains paused and has a readable Chinese restore action',t=>{
+  const {$,w}=setup(t,{storage:{'qinan-motion-paused':'true'}});
+  assert.equal($('#motionButton .motion-button-label').textContent,'恢复动效');assert.equal($('#motionButton').dataset.paused,'true');
+  assert.equal(w.localStorage.getItem('qinan-motion-paused'),'true');
+  $('#motionButton').click();assert.equal($('#motionButton .motion-button-label').textContent,'暂停动效');assert.equal($('#motionButton').dataset.paused,'false');assert.equal(w.localStorage.getItem('qinan-motion-paused'),'false');
 });
 
 test('the sculpture control prevents duplicate morphs and updates its label only after settling',async t=>{
