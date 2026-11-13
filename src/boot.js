@@ -1,18 +1,16 @@
-const SESSION_KEY = 'qinan-boot-v7-complete';
+const SESSION_KEY = 'qinan-boot-v8-complete';
 const FIRST_VISIT_MS = 2400;
 const RETURN_VISIT_MS = 400;
 const FAIL_OPEN_MS = 4000;
-const ASSEMBLED_HOLD_MS = 200;
-const PIECE_POSITIONS = [
-  [.12,.23,-14], [.39,.16,9], [.10,.45,-9], [.32,.66,14], [.14,.75,-5], [.44,.79,8],
-  [.62,.19,12], [.86,.27,-11], [.70,.48,7], [.89,.57,-8], [.65,.73,-13], [.86,.77,10],
-];
+const FIRST_HOLD_MS = 560;
+const RETURN_HOLD_MS = 200;
+const TYPE_FORMS = ['condensed','outline','final'];
 
 /**
- * A bounded, real-readiness-driven entrance. Each of the three milestones
- * releases four clipped pieces of the original 亲安 contours. Animation order
- * remains deterministic even if the lazy chunks settle in a different order.
- * `ready` is retained for callers with one combined readiness promise.
+ * Real readiness advances a centered, readable typographic sequence. Original
+ * QINAN polygon masters share their path topology: Anime interpolates the
+ * letterforms themselves, while the Chinese word stays intact and legible.
+ * `ready` remains supported for one combined readiness promise.
  */
 export function createBootSequence({
   root = globalThis.document?.querySelector('#boot'),
@@ -26,8 +24,10 @@ export function createBootSequence({
   clearTimeout(win?.__qinanBootFailSafe);
   const label = root?.querySelector('[data-boot-stage]');
   const skipButton = root?.querySelector('[data-boot-skip]');
-  const pieces = [...(root?.querySelectorAll('[data-boot-piece]') ?? [])];
-  const word = root?.querySelector('.boot-complete-word');
+  const letters = [...(root?.querySelectorAll('[data-boot-letter]') ?? [])];
+  const word = root?.querySelector('.boot-type-word');
+  const echo = root?.querySelector('.boot-type-echo');
+  const chinese = root?.querySelector('.boot-type-cn');
   const previousFocus = doc?.activeElement;
   const milestones = (Array.isArray(stages) && stages.length ? stages : [{id:'interface',label:'界面',ready}])
     .map((item,index) => ({...item,id:item.id || `stage-${index}`,label:item.label || '界面',status:'pending',detail:''}));
@@ -35,12 +35,12 @@ export function createBootSequence({
   const finished = new Promise(resolve => { resolveFinished = resolve; });
   let complete = false;
   let minimumElapsed = false;
-  let assembledHoldElapsed = false;
-  let nextGroup = 0;
+  let finalHoldElapsed = false;
+  let nextForm = 0;
   let activeTimeline;
   let animationRevision = 0;
   let animating = false;
-  let minimumTimer, deadlineTimer, groupTimer, holdTimer;
+  let minimumTimer, deadlineTimer, formTimer, holdTimer;
   let mediaQuery;
   let returning = false;
   const inertSiblings = [];
@@ -78,14 +78,14 @@ export function createBootSequence({
   function updateDetail() {
     if (complete || !root) return;
     const pending = milestones.find(item => item.status === 'pending');
-    root.dataset.phase = pending ? (nextGroup || animating ? 'assembling' : 'loading') : (nextGroup === milestones.length ? 'ready' : 'assembling');
+    root.dataset.phase = pending ? (nextForm || animating ? 'typing' : 'loading') : (nextForm === milestones.length ? 'ready' : 'typing');
     root.dataset.stage = pending?.id || 'ready';
     if (label) label.textContent = pending ? `正在准备${pending.label}` : '已就绪';
   }
 
   function cancelAnimation() {
     animationRevision++;
-    clearTimeout(groupTimer);
+    clearTimeout(formTimer);
     const timeline = activeTimeline;
     activeTimeline = undefined;
     animating = false;
@@ -101,7 +101,6 @@ export function createBootSequence({
     cancelAnimation();
     skipButton?.removeEventListener('click', skip);
     doc?.removeEventListener('keydown', onKeyDown);
-    win?.removeEventListener('resize', onResize);
     mediaQuery?.removeEventListener?.('change', onMotionChange);
     releaseInterface();
     if (doc?.documentElement) doc.documentElement.dataset.boot = 'ready';
@@ -131,106 +130,117 @@ export function createBootSequence({
     }
   }
   function onMotionChange(event) { if (event.matches) finish('paused'); }
-  function maybeFinish() { if (minimumElapsed && assembledHoldElapsed) finish('ready'); }
+  function maybeFinish() { if (minimumElapsed && finalHoldElapsed) finish('ready'); }
 
-  function placePieces() {
-    const svg = root?.querySelector('.boot-glyph');
-    if (!svg) return;
-    const width = win?.innerWidth || 1280;
-    const height = win?.innerHeight || 800;
-    const measured = svg.getBoundingClientRect();
-    const svgWidth = measured.width || Math.min(width * (width < 700 ? .82 : .58), 820);
-    const scale = svgWidth / 2200;
-    const left = measured.width ? measured.left : (width - svgWidth) / 2;
-    const top = measured.height ? measured.top : height * .46 - svgWidth / 4;
-    const clamp = (value,low,high) => Math.max(low,Math.min(Math.max(low,high),value));
-    for (let i = 0; i < pieces.length; i++) {
-      const piece = pieces[i];
-      if (piece.dataset.state === 'assembled' || piece.dataset.state === 'animating') continue;
-      const [px,py,angle] = PIECE_POSITIONS[i % PIECE_POSITIONS.length];
-      const row = Number(piece.dataset.bootRow ?? Math.floor((i % 6) / 2));
-      const column = Number(piece.dataset.bootColumn ?? i % 2);
-      const cx = (i < 6 ? 70 : 1120) + 250 + column * 500;
-      const cy = 225 + row * 330;
-      const halfWidth = 270 * scale;
-      const halfHeight = 190 * scale;
-      const targetX = clamp(width * px,24 + halfWidth,width - 24 - halfWidth);
-      const targetY = clamp(height * py,100 + halfHeight,height - 132 - halfHeight);
-      const x = (targetX - left) / scale - cx;
-      const y = (targetY - top) / scale - cy;
-      piece.dataset.fromX = String(x);
-      piece.dataset.fromY = String(y);
-      piece.dataset.fromRotate = String(angle);
-      piece.style.transformOrigin = `${cx}px ${cy}px`;
-      piece.style.transform = `translateX(${x}px) translateY(${y}px) rotate(${angle}deg) scale(.86)`;
-      piece.style.opacity = '1';
-      piece.dataset.state = 'waiting';
+  function resetTypography() {
+    if (word) {
+      word.style.transform = 'skewX(0deg)';
+      word.style.fillOpacity = '1';
+      word.style.strokeWidth = '0px';
+      word.removeAttribute('mask');
     }
+    if (echo) {
+      echo.style.transform = 'translateX(0px)';
+      echo.style.opacity = '0';
+    }
+    if (chinese) {
+      chinese.style.fillOpacity = '1';
+      chinese.style.strokeWidth = '0px';
+    }
+    for (const letter of letters) letter.setAttribute('d',letter.dataset.formWide || letter.getAttribute('d'));
+    root.dataset.type = 'wide';
+    delete root.dataset.typeSettled;
   }
-  function onResize() { if (!complete) placePieces(); }
 
-  function markAssembled(targets) {
-    for (const piece of targets) {
-      piece.style.transform = 'translateX(0px) translateY(0px) rotate(0deg) scale(1)';
-      piece.style.opacity = '1';
-      piece.dataset.state = 'assembled';
+  function finishForm(form,field) {
+    for (const letter of letters) {
+      const path = letter.dataset[field];
+      if (path) letter.setAttribute('d',path);
+    }
+    if (word) {
+      word.style.transform = `skewX(${form === 'condensed' ? -2 : 0}deg)`;
+      word.style.fillOpacity = form === 'outline' ? '.06' : '1';
+      word.style.strokeWidth = form === 'outline' ? '3.5px' : '0px';
+      word.removeAttribute('mask');
+    }
+    if (echo) {
+      echo.style.transform = 'translateX(0px)';
+      echo.style.opacity = '0';
+    }
+    if (chinese) {
+      chinese.style.fillOpacity = form === 'outline' ? '.18' : '1';
+      chinese.style.strokeWidth = form === 'outline' ? '15.3px' : form === 'condensed' ? '5px' : '0px';
     }
   }
 
-  function assembleNext() {
+  function advanceTypography() {
     if (complete || animating) return;
-    if (nextGroup === milestones.length) {
-      root.dataset.assembled = 'true';
-      // An uncut copy replaces the clipped pieces at identity, preserving all
-      // original counters/holes and eliminating final antialiasing seams.
-      if (word) {
-        word.style.opacity = '1';
-        for (const piece of pieces) piece.style.opacity = '0';
-      }
+    if (nextForm === milestones.length) {
+      root.dataset.type = 'final';
+      root.dataset.typeSettled = 'true';
       updateDetail();
-      holdTimer = setTimeout(() => { assembledHoldElapsed = true; maybeFinish(); }, ASSEMBLED_HOLD_MS);
+      holdTimer = setTimeout(() => {finalHoldElapsed = true;maybeFinish();},returning ? RETURN_HOLD_MS : FIRST_HOLD_MS);
       return;
     }
-    if (milestones[nextGroup].status === 'pending') { updateDetail(); return; }
-    const group = nextGroup;
-    const targets = milestones.length === 1 ? pieces : pieces.filter(piece => Number(piece.dataset.bootGroup) === group);
+    if (milestones[nextForm].status === 'pending') {updateDetail();return;}
+    const formIndex = milestones.length === 1 ? 2 : Math.min(nextForm,2);
+    const form = TYPE_FORMS[formIndex];
+    const field = form === 'condensed' ? 'formCondensed' : form === 'outline' ? 'formWide' : 'formFinal';
+    const span = returning ? [65,65,70][formIndex] : [680,680,480][formIndex];
     const revision = ++animationRevision;
     animating = true;
-    for (const target of targets) target.dataset.state = 'animating';
+    root.dataset.type = form === 'final' ? 'cut' : form;
+    if (word && form === 'final') word.setAttribute('mask','url(#boot-type-cut)');
     updateDetail();
-    const duration = returning ? 50 : 560;
-    const stagger = returning ? 5 : 40;
-    const span = duration + Math.max(0,targets.length - 1) * stagger;
     const onComplete = () => {
       if (complete || revision !== animationRevision || !animating) return;
-      clearTimeout(groupTimer);
-      // A watchdog completion also cancels a stalled engine before placing
-      // the pieces, so it cannot write stale styles after the next stage.
+      clearTimeout(formTimer);
       const timeline = activeTimeline;
       activeTimeline = undefined;
       animating = false;
       animationRevision++;
-      try { timeline?.cancel?.(); } catch { /* Completion remains usable. */ }
-      markAssembled(targets);
-      nextGroup++;
-      assembleNext();
+      try {timeline?.cancel?.();} catch {/* Completion remains usable. */}
+      finishForm(form,field);
+      nextForm++;
+      advanceTypography();
     };
-    if (!targets.length || typeof createTimeline !== 'function') { onComplete(); return; }
+    if (!letters.length || !word || typeof createTimeline !== 'function') {onComplete();return;}
     try {
       const timeline = createTimeline({autoplay:false,onComplete});
       activeTimeline = timeline;
-      timeline.add(targets, {
-        translateX: target => [Number(target.dataset.fromX),0],
-        translateY: target => [Number(target.dataset.fromY),0],
-        rotate: target => [Number(target.dataset.fromRotate),0],
-        scale: [.86,1],
-        duration,
-        delay: (_,index) => index * stagger,
+      // All masters use the same closed polygon commands and counter paths.
+      // This is a real font-form change, not a stretched raster or a collection
+      // of flying glyph fragments. No third-party font download is necessary.
+      timeline.add(letters, {
+        d: letter => [letter.getAttribute('d'),letter.dataset[field]],
+        duration:span,
+        ease:form === 'final' ? 'out(4)' : 'out(6)',
+      },0);
+      timeline.add(word, {
+        skewX:[formIndex === 1 ? -2 : 0,form === 'condensed' ? -2 : 0],
+        fillOpacity:[formIndex === 2 ? .06 : 1,form === 'outline' ? .06 : 1],
+        strokeWidth:[formIndex === 2 ? 3.5 : 0,form === 'outline' ? 3.5 : 0],
+        duration:span,
         ease:'out(4)',
-      }, 0);
-      groupTimer = setTimeout(onComplete,span + 100);
+      },0);
+      // The Noto contours are scaled by .2287 inside each <use>. A 15.3-unit
+      // local stroke produces the same ~3.5-unit visible outline as the Latin
+      // word. Keep a dim fill throughout: the Chinese word never blinks out.
+      if (chinese) timeline.add(chinese, {
+        fillOpacity:[formIndex === 2 ? .18 : 1,form === 'outline' ? .18 : 1],
+        strokeWidth:[formIndex === 1 ? 5 : formIndex === 2 ? 15.3 : 0,form === 'outline' ? 15.3 : form === 'condensed' ? 5 : 0],
+        duration:span,
+        ease:'out(4)',
+      },0);
+      if (echo && form !== 'condensed') timeline.add(echo, {
+        translateX:[form === 'outline' ? -10 : 8,0],
+        opacity:[.22,0],
+        duration:span,
+        ease:'out(3)',
+      },0);
+      formTimer = setTimeout(onComplete,span + 100);
       timeline.play();
-    } catch { onComplete(); }
+    } catch {onComplete();}
   }
 
   const controller = {finished,skip,setPaused(value) {if (value) finish('paused');},destroy() {finish('destroyed');}};
@@ -249,7 +259,7 @@ export function createBootSequence({
         if (text) text.textContent = item.detail;
       }
       updateDetail();
-      assembleNext();
+      advanceTypography();
     };
     Promise.resolve(item.ready).then(result => settled(result),() => settled(undefined,true));
   });
@@ -261,9 +271,16 @@ export function createBootSequence({
   try { mediaQuery = win?.matchMedia?.('(prefers-reduced-motion: reduce)'); } catch { /* Optional API. */ }
   root.hidden = false;
   root.setAttribute('aria-busy', 'true');
-  delete root.dataset.assembled;
-  if (word) word.style.opacity = '0';
-  for (const piece of pieces) delete piece.dataset.state;
+  resetTypography();
+  milestones.forEach((item,index) => {
+    const indicator = root.querySelector(`[data-boot-milestone="${index}"]`);
+    if (indicator) {
+      indicator.dataset.state = 'pending';
+      indicator.setAttribute('aria-label',`正在准备${item.label}`);
+      const text = indicator.querySelector('[data-boot-milestone-label]');
+      if (text) text.textContent = item.label;
+    }
+  });
   if (doc?.documentElement) doc.documentElement.dataset.boot = 'loading';
   updateDetail();
   if (motionPaused || mediaQuery?.matches) {
@@ -275,10 +292,8 @@ export function createBootSequence({
   root.dataset.variant = returning ? 'return' : 'first';
   skipButton?.addEventListener('click', skip);
   doc?.addEventListener('keydown', onKeyDown);
-  win?.addEventListener('resize', onResize);
   mediaQuery?.addEventListener?.('change', onMotionChange);
   isolateInterface();
-  placePieces();
   minimumTimer = setTimeout(() => { minimumElapsed = true; maybeFinish(); },returning ? RETURN_VISIT_MS : FIRST_VISIT_MS);
   deadlineTimer = setTimeout(() => finish('timeout'),FAIL_OPEN_MS);
   observeMilestones();

@@ -1,6 +1,7 @@
 import './style.css';
 import './workspace.css';
 import './fui.css';
+import './transition-content.css';
 import './practice.css';
 import './boot.css';
 import { createBootSequence } from './boot.js';
