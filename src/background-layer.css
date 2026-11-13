@@ -1,110 +1,65 @@
-/* The viewport environment owns its colour and motion independently of Three. */
+/* Original dual-corner light artwork. No downloaded reference images are used. */
 .stage-background {
+  --ambient-unit: 2vmin; --ambient-rotation: 0deg; --ambient-shift: 0; --ambient-entrance: 1;
+  --ambient-light-art: radial-gradient(circle closest-side,#a7f79ff6 0%,#8af875d6 20%,#43f8306f 50%,#28f90e20 70.7%,#20f50000 100%);
   position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
-  isolation: isolate; background: #0b110a;
-  --ambient-pointer-x: 0px; --ambient-pointer-y: 0px; --ambient-entrance: 1;
+  isolation: isolate; background: #050b08;
 }
-/* A coloured first frame also exists before JavaScript, or if its chunk fails. */
-.stage-background::before {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse at 75% 21%,#b8f62b70 0, #8dbc1830 25%,transparent 53%),
-    radial-gradient(ellipse at 26% 91%,#bcf82b69 0,#8ab61b2e 25%,transparent 55%);
+/* The initial no-JavaScript composition uses exactly the same corner geometry. */
+.stage-background::before,.stage-background::after {
+  content: ''; position: absolute; inset: auto; aspect-ratio: 1; pointer-events: none;
+  background: var(--ambient-light-art); margin: 0; border: 0;
 }
-.stage-background::after { content: none; }
-.stage-background[data-ambient-mounted]::before { content: none; }
+.stage-background::before { width: calc(var(--ambient-unit)*80); left: calc(var(--ambient-unit)*-30); top: calc(var(--ambient-unit)*-30); }
+.stage-background::after { width: calc(var(--ambient-unit)*60); right: calc(var(--ambient-unit)*-25); bottom: calc(var(--ambient-unit)*-25); }
+.stage-background[data-ambient-mounted]::before,.stage-background[data-ambient-mounted]::after { content: none; }
 .stage-background > .field-axis { display: none; }
-.ambient-environment,.ambient-parallax,.ambient-depth,.ambient-streams,.ambient-veil {
-  position: absolute; inset: 0; pointer-events: none;
+.ambient-environment,.ambient-rotation,.ambient-sway,.ambient-depth,.ambient-veil {
+  position: absolute; inset: 0; overflow: visible; pointer-events: none;
 }
-.ambient-environment { overflow: hidden; }
-.ambient-parallax {
-  inset: -42px; transform: translate3d(var(--ambient-pointer-x),var(--ambient-pointer-y),0);
-  will-change: transform;
+.ambient-rotation {
+  transform: rotate(var(--ambient-rotation)); transform-origin: 50% 50%; will-change: transform;
+}
+.ambient-sway {
+  transform-origin: 50% 50%; animation: ambient-corner-sway 18s ease-in-out -4.5s infinite alternate;
 }
 .ambient-depth { opacity: calc(.86 + var(--ambient-entrance)*.14); }
-.ambient-light {
-  position: absolute; aspect-ratio: 1; border-radius: 50%;
-  background: radial-gradient(ellipse at 50% 50%,#ceff267d 0%,#b9ef005e 22%,#8dbd0033 44%,#6b9d0000 72%);
-  will-change: transform;
-}
+.ambient-light { position: absolute; aspect-ratio: 1; overflow: visible; }
 .ambient-light-primary {
-  width: 65vw; min-width: 680px; max-width: 1260px; left: 37%; top: -35%;
-  transform: translate3d(-4%,8%,0) scale(1.04);
-  animation: ambient-field-primary 15s ease-in-out -5s infinite alternate;
+  width: calc(var(--ambient-unit)*80); left: calc(var(--ambient-unit)*-30); top: calc(var(--ambient-unit)*-30);
+  transform: translateX(calc(var(--ambient-shift)*var(--ambient-unit)));
 }
 .ambient-light-secondary {
-  width: 50vw; min-width: 540px; max-width: 980px; left: -9%; bottom: -26%;
-  background: radial-gradient(ellipse at 50% 50%,#dbff3b8c 0%,#bded1466 20%,#84b42136 46%,#729c0000 72%);
-  transform: translate3d(8%,-8%,0) scale(1.08);
-  animation: ambient-field-secondary 19s ease-in-out -11s infinite alternate;
+  width: calc(var(--ambient-unit)*60); right: calc(var(--ambient-unit)*-25); bottom: calc(var(--ambient-unit)*-25);
+  transform: translateX(calc(var(--ambient-shift)*var(--ambient-unit)*-1));
 }
-.ambient-streams { width: 100%; height: 100%; overflow: visible; }
-.ambient-track { fill: none; stroke: #b5d75e; stroke-opacity: .16; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ambient-stream {
-  fill: none; stroke: #d1ff44; stroke-opacity: .72; stroke-width: 1.8;
-  stroke-dasharray: 84 620; stroke-dashoffset: 0; vector-effect: non-scaling-stroke;
-  animation: ambient-line-flow var(--stream-duration,5.4s) linear var(--stream-delay,-2s) infinite;
-  transition: stroke-opacity .4s,stroke-width .4s;
+.ambient-light-fill {
+  position: absolute; inset: 0; background: var(--ambient-light-art); transform-origin: 50% 50%;
+  animation: ambient-corner-breathe 14s ease-in-out -3.5s infinite alternate; will-change: transform;
 }
-.ambient-stream:nth-of-type(4n) { stroke: #ecffd1; }
-.stage-background[data-active-portal="check"] .ambient-stream[data-route="check"],
-.stage-background[data-active-portal="contacts"] .ambient-stream[data-route="contacts"],
-.stage-background[data-active-portal="practice"] .ambient-stream[data-route="practice"],
-.stage-background[data-active-portal="history"] .ambient-stream[data-route="history"] {
-  stroke-opacity: 1; stroke-width: 3;
-}
-.ambient-geometry { fill: none; stroke: #b8cf86; stroke-opacity: .38; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ambient-cobalt { fill: #3568ff; stroke: none; }
+.ambient-light-secondary .ambient-light-fill { animation-duration: 18s; animation-delay: -10s; }
+/* A feathered reading veil retains the green field behind the headline. */
 .ambient-veil {
-  background: linear-gradient(90deg,#0b110aa6 0%,#0b110a80 25%,#0b110a1a 53%,transparent 70%),
-    linear-gradient(180deg,#0b110a38 0,transparent 24%,transparent 80%,#0b110a4d 100%);
+  background: radial-gradient(ellipse 46vw 24vh at 16% 7%,#030b075d 0%,#030b0749 42%,#030b0700 100%),
+    radial-gradient(ellipse 55vw 80vh at 18% 38%,#030b07aa 0%,#030b0766 42%,#030b0700 78%);
 }
-.ambient-matrix-frame {
-  position: absolute; width: 240px; height: 200px; right: 7%; bottom: 9%;
-  opacity: .67; transform: skewY(-8deg); overflow: hidden;
-  border-top: 1px solid #c5e48138; border-bottom: 1px solid #c5e48124;
-}
-.ambient-matrix-frame::before {
-  content: ''; position: absolute; left: 0; top: -1px; width: 38px; height: 3px; background: #b9ed3d;
-}
-.ambient-matrix-slot { position: absolute; inset: 5px 0; display: grid; place-items: center; }
-.ambient-matrix-slot:not([data-matrix-mounted])::before {
-  content: ''; position: absolute; inset: 15px;
-  background-image: radial-gradient(circle,#c8ed7b88 1px,transparent 1.5px);
-  background-size: 19px 19px; opacity: .55;
-  mask-image: linear-gradient(135deg,transparent,#000 28%,#000 65%,transparent);
-}
-.ambient-matrix-slot canvas { max-width: 100%; max-height: 100%; }
-@keyframes ambient-field-primary {
-  from { transform: translate3d(-4%,8%,0) scale(1.04); }
-  to { transform: translate3d(11%,-5%,0) scale(1.16); }
-}
-@keyframes ambient-field-secondary {
-  from { transform: translate3d(8%,-8%,0) scale(1.08); }
-  to { transform: translate3d(-7%,9%,0) scale(.95); }
-}
-@keyframes ambient-line-flow { to { stroke-dashoffset: -704; } }
-.stage-background[data-ambient-state="paused"] .ambient-light,
-.stage-background[data-ambient-state="paused"] .ambient-stream { animation-play-state: paused; }
-.stage-background[data-ambient-state="paused"] .ambient-stream { transition: none; }
-@media (max-width: 999px) {
-  .ambient-light-primary { width: 84vw; min-width: 600px; left: 30%; top: -19%; }
-  .ambient-light-secondary { width: 70vw; min-width: 560px; left: -29%; bottom: -34%; }
-  .ambient-matrix-frame { right: 4%; bottom: 8%; width: 190px; height: 170px; opacity: .58; }
+@keyframes ambient-corner-sway { from { transform: rotate(-1.2deg); } to { transform: rotate(1.2deg); } }
+@keyframes ambient-corner-breathe { from { transform: scale(.985); } to { transform: scale(1.025); } }
+.stage-background[data-ambient-state="paused"] .ambient-sway,
+.stage-background[data-ambient-state="paused"] .ambient-light-fill { animation-play-state: paused; }
+@media (max-aspect-ratio: 3/2) {
+  .stage-background { --ambient-unit: 1vmax; }
 }
 @media (max-width: 699px) {
-  .ambient-parallax { inset: -42px; }
-  .ambient-light-primary { width: 130vw; min-width: 0; max-width: none; left: 9%; top: -7%; }
-  .ambient-light-secondary { width: 125vw; min-width: 0; max-width: none; left: -62%; bottom: -3%; }
+  .ambient-sway { animation-name: ambient-corner-sway-mobile; animation-duration: 13s; animation-delay: -3.25s; }
   .ambient-veil {
-    background: linear-gradient(110deg,#0b110a8c 0%,#0b110a47 42%,transparent 76%),
-      linear-gradient(180deg,#0b110a24 0,transparent 40%,#0b110a14 100%);
+    background: radial-gradient(ellipse 110vw 22vh at 26% 7%,#030b0752 0%,#030b0740 42%,#030b0700 100%),
+      radial-gradient(ellipse 115vw 52vh at 22% 24%,#030b0794 0%,#030b0748 46%,#030b0700 90%);
   }
-  .ambient-stream { stroke-width: 1.4; stroke-opacity: .6; }
-  .ambient-matrix-frame { width: 144px; height: 144px; right: -18px; bottom: 10%; opacity: .46; }
 }
+@keyframes ambient-corner-sway-mobile { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .ambient-light,.ambient-stream { animation-play-state: paused !important; transition: none; }
-  .ambient-parallax { will-change: auto; }
+  .ambient-sway,.ambient-light-fill { animation-play-state: paused !important; }
+  .ambient-rotation,.ambient-light-fill { will-change: auto; }
 }
 @media print { .stage-background { display: none !important; } }

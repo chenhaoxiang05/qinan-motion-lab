@@ -5,6 +5,7 @@ import { createWorkspaceDismiss } from './workspace-dismiss.js';
 import { createApiClient } from './api-client.js';
 import { createWorkspaceIntro } from './workspace-intro.js';
 import { guideMarkup, mountUsageGuide } from './usage-guide.js';
+import { createInteractionFeedback } from './interaction-feedback.js';
 
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fileTypes = {
@@ -31,7 +32,7 @@ export function moduleResult(module) {
   return {status:'below',threshold};
 }
 
-export function initApp({animate,utils,createSpring,createLayout,visual,islands={},homeMotion={},apiBase=import.meta.env?.VITE_API_BASE_URL||'/api',startReady=null,entryDuration,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
+export function initApp({animate,utils,createSpring,createLayout,visual,islands={},homeMotion={},portalMotion={},apiBase=import.meta.env?.VITE_API_BASE_URL||'/api',startReady=null,entryDuration,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
   const body = $('#workspaceBody'), workspace = $('#workspace'), modal = $('#modal');
@@ -43,33 +44,38 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   const api=createApiClient({baseUrl:apiBase,fetchImpl:(...args)=>window.fetch(...args)});
   let contacts = readArray('qinan-contacts').filter(c=>c && typeof c.name==='string' && typeof c.phone==='string');
   const legacyRecords = readArray('qinan-demo-history').filter(r=>r && typeof r.id==='string' && r.demo);
-  let destroyed=false, startupPending=!!startReady;
+  let destroyed=false, startupPending=!!startReady, printing=false;
   let uploadIsland=null, uploadHost=null, materialTabs=null, materialTabsHost=null, statusIsland=null, pickerPending=false, pickerReturnTimer=null, dragDepth=0;
-  let page='home', routeRevision=0, viewController=null;
+  let page='home', routeRevision=0, viewController=null, historyRequest=0, reportRequest=0;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
   let practiceCounter=null, practiceFaq=null, practiceFaqValue=null, practiceFaqItems=[], questionSwap=null, practiceDock=null;
   let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null, feedbackAnimation=null, windowReady=false, modalAnimation=null, modalRevision=0, guide=null;
   const pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
+  const feedback=createInteractionFeedback({root:document,animate,motionEnabled});
   const entry=createWorkspaceIntro({host:body,animate,motionEnabled,getIslands:()=>islands,duration:entryDuration,onReady(){windowReady=transitions.state==='open';updatePracticeDock();}});
   const transitions=createWorkspaceTransitions({
     dialog:workspace,surface:$('.workspace-surface'),backdrop:$('#workspaceBackdrop'),portals:$$('.portal-node'),
     animate,createLayout,motionEnabled,
-    onBusy(){if(transitions.state==='closing')entry.cancel();windowReady=false;finishQuestionSwap();updatePracticeDock();finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(transitions.state!=='closing');},
-    onHome(){visual.focus(false);},
-    onClosed(){windowReady=false;disposeView();body.innerHTML='';},
+    onBusy(){portalMotion.setCovered?.(true);feedback.settle();if(transitions.state==='closing')entry.cancel();windowReady=false;finishQuestionSwap();updatePracticeDock();finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(transitions.state!=='closing');},
+    onHome(){visual.focus(false);syncPortalCoverage();},
+    onClosed(){windowReady=false;disposeView();body.innerHTML='';syncPortalCoverage();},
     onOpened(){entry.start();if(!entry.pending){windowReady=true;updatePracticeDock();}},
   });
   const exteriorDismiss=createWorkspaceDismiss({dialog:workspace,surface:$('.workspace-surface'),canDismiss:()=>transitions.state==='open'&&!modal.open&&!pickerPending,onDismiss:()=>go('home')});
   const e=escapeHTML;
   const heading=(label,title,desc)=>`<div class="page-heading"><span class="eyebrow">${label}</span><h1>${title}</h1><p>${desc}</p></div>`;
+  const syncPortalCoverage=()=>portalMotion.setCovered?.(modal.open||page!=='home'||transitions.state!=='closed');
+  function showFeedback(node,message,kind='success'){
+    if(!node)return;node.textContent=message;node.dataset.state=kind;feedback.cue(node,{kind});
+  }
 
   function getStored(key,fallback,storage='localStorage') {try{return window[storage].getItem(key)??fallback;}catch{return fallback;}}
   function setStored(key,value,storage='localStorage') {try{window[storage].setItem(key,value);return true;}catch{return false;}}
   function removeStored(key,storage='localStorage') {try{window[storage].removeItem(key);}catch{/* Storage may be unavailable in private browsing. */}}
   function readArray(key){try{const parsed=JSON.parse(getStored(key,'[]'));return Array.isArray(parsed)?parsed:[];}catch{return [];}}
-  function saveArray(key,value){const saved=setStored(key,JSON.stringify(value));if(!saved)toast('当前浏览器无法保存数据，请检查存储设置。');return saved;}
+  function saveArray(key,value){return setStored(key,JSON.stringify(value));}
   function toast(text){
     const el=$('#toast');el.textContent=text;
     if(typeof el.showPopover==='function'){if(!el.matches(':popover-open'))el.showPopover();}
@@ -85,7 +91,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   }
   function openModal(html){
     const alreadyOpen=modal.open;
-    settleModal();guide?.destroy();guide=null;
+    feedback.settle(modal);settleModal();guide?.destroy();guide=null;
     utils.remove($('#modalBody').querySelectorAll('*'));
     $('#modalBody').innerHTML=html;
     if(!alreadyOpen){
@@ -99,8 +105,9 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
         }catch{settleModal();}
       }
     }
+    portalMotion.setCovered?.(true);
   }
-  function closeModal(){settleModal();guide?.destroy();guide=null;if(modal.open)modal.close();}
+  function closeModal(){feedback.settle(modal);settleModal();guide?.destroy();guide=null;if(modal.open)modal.close();syncPortalCoverage();}
   const cancelModal=event=>{event.preventDefault();closeModal();};
   const modalVisibility=()=>{if(document.hidden)settleModal();};
   $('#closeModal').onclick=closeModal;
@@ -140,7 +147,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     uploadIsland?.destroy();uploadIsland=null;uploadHost=null;
     statusIsland?.destroy();statusIsland=null;disposePracticeIslands();
   }
-  function disposeView(){entry.cancel();disposeQuizLayout();disposeIslands();disposePracticeDock();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
+  function disposeView(){feedback.settle(body);entry.cancel();disposeQuizLayout();disposeIslands();disposePracticeDock();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
     if(destroyed||startupPending)return;
     const raw=location.hash.slice(1)||'home';
@@ -150,7 +157,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     const revision=++routeRevision;
     // Abort old requests immediately, but retain the visible DOM until its close
     // transition finishes. Reverting a quiz layout before fade-out caused jumps.
-    entry.cancel();viewController?.abort();page=target;
+    feedback.settle();entry.cancel();viewController?.abort();page=target;
     transitions.navigate({key:target,portal:target==='report'?lastPortal:$(`[data-portal="${target}"]`),render(){
       if(revision!==routeRevision)return;
       disposeView();
@@ -234,7 +241,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     if(!fileTypes[next]||type===next||activeTask||destroyed||page!=='check'||entry.pending)return;
     finishPicker();dragDepth=0;type=next;clearFile();fileError='';
     // Keep the same tablist, panel, dropzone and surrounding scene in the DOM.
-    syncType();renderFile();
+    syncType();renderFile('change');
   }
   function materialTabsProps(host){
     return {value:type,disabled:!!activeTask,paused:!motionEnabled(),onChange(next){
@@ -266,11 +273,16 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   }
   function finishPicker(){
     clearTimeout(pickerReturnTimer);pickerReturnTimer=null;pickerPending=false;
-    updateUploadIsland();
+    updateUploadIsland();updateNativePicker();
+  }
+  function updateNativePicker(){
+    if(uploadIsland)return;
+    const zone=$('#dropzone');if(!zone)return;zone.dataset.pickerOpen=String(pickerPending);
+    zone.querySelectorAll('#chooseFile,#replaceFile').forEach(button=>button.setAttribute('aria-busy',String(pickerPending)));
   }
   function chooseFile(){
     if(activeTask||pickerPending||destroyed)return;
-    const input=$('#fileInput');pickerPending=true;updateUploadIsland();
+    const input=$('#fileInput');pickerPending=true;updateUploadIsland();updateNativePicker();
     input.value='';input.accept=fileTypes[type].accept;
     // Keep the file picker in this trusted click/key event. Do not await the
     // folder's second animation or defer input.click to an animation callback.
@@ -291,7 +303,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     selectionRevision++;validationCleanup?.();validationCleanup=null;validating=false;
     if(previewURL)URL.revokeObjectURL(previewURL);previewURL=null;selectedFile=null;
   }
-  function setError(message){fileError=message;if($('#fileError'))$('#fileError').textContent=message;else toast(message);}
+  function setError(message){fileError=message;if($('#fileError'))showFeedback($('#fileError'),message,'error');else toast(message);}
   async function setFile(file){
     if(activeTask)return;
     const ext='.'+file.name.split('.').pop().toLowerCase();
@@ -301,7 +313,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     clearFile();selectedFile=file;previewURL=URL.createObjectURL(file);fileError='';
     const token=selectionRevision;
     if(type==='video'){
-      validating=true;renderFile();
+      validating=true;renderFile('success');
       const video=document.createElement('video');
       const duration=await new Promise(resolve=>{
         let settled=false;
@@ -314,7 +326,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       if(token!==selectionRevision)return;validationCleanup=null;validating=false;
       if(duration!==null&&duration>180){clearFile();fileError='视频超过 3 分钟，请截取需要核验的片段。';}
     }
-    if(page==='check'&&!activeTask)renderFile();
+    if(page==='check'&&!activeTask){renderFile(fileError?'error':'success');if(fileError)feedback.cue($('#fileError'),{kind:'error'});}
   }
   function uploadProps(){
     const token=selectionRevision;
@@ -323,12 +335,12 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       hovered:dragDepth>0?true:undefined,paused:!motionEnabled(),disabled:!!activeTask,
       label:fileTypes[type].label,hint:fileTypes[type].hint,detail:fileTypes[type].detail,validating,
       onChoose:chooseFile,
-      onRemove(){if(activeTask)return;finishPicker();clearFile();fileError='';renderFile();},
+      onRemove(){if(activeTask)return;const restoreFocus=$('#dropzone')?.contains(document.activeElement);finishPicker();clearFile();fileError='';renderFile('change');if(restoreFocus)$('#dropzone')?.querySelector('#chooseFile,[data-upload-action="choose"]')?.focus({preventScroll:true});},
       onPreviewError(){if(!destroyed&&token===selectionRevision&&selectedFile&&page==='check')setError('无法预览这张图片。可以更换材料，或继续核验原文件。');}
     };
   }
   function updateUploadIsland(){if(uploadIsland&&uploadHost?.isConnected)uploadIsland.update(uploadProps());}
-  function renderFile(){
+  function renderFile(reason){
     const dropzone=$('#dropzone');if(!dropzone)return;
     dropzone.classList.toggle('has-file',!!selectedFile);
     dropzone.classList.toggle('dragover',dragDepth>0);
@@ -342,6 +354,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       else updateUploadIsland();
       return;
     }
+    feedback.settle(dropzone);
     // A functional native fallback also keeps the app usable if the optional
     // React island chunk cannot be loaded.
     if(!selectedFile){
@@ -352,6 +365,11 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       dropzone.innerHTML=`${media}<span class="selected-name">${e(selectedFile.name)}</span><p>${(selectedFile.size/1024/1024).toFixed(2)} MB${validating?' · 正在校验视频时长…':''}</p><div class="file-controls"><button id="replaceFile">更换材料 ↗</button><button id="removeFile">移除 ×</button></div>`;
       $('#replaceFile').onclick=chooseFile;$('#removeFile').onclick=uploadProps().onRemove;
       const image=dropzone.querySelector('img');if(image)image.onerror=uploadProps().onPreviewError;
+    }
+    updateNativePicker();
+    if(reason){
+      const targets=selectedFile?dropzone.querySelectorAll('.selected-name,.file-controls,p'):dropzone.querySelectorAll('.upload-glyph,h2,p');
+      targets.forEach(node=>feedback.cue(node,{kind:reason==='success'?'success':'change'}));
     }
   }
 
@@ -391,7 +409,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     // A returning view owns its intro until it commits. Keep the failure in state
     // so that render uses it, without replacing a live Rare UI entry island.
     if(page==='check'){
-      if(!entry.pending&&transitions.state!=='closing')renderCheck();
+      if(!entry.pending&&transitions.state!=='closing'){renderCheck();feedback.cue($('#fileError'),{kind:'error'});}
     }else toast(message);
   }
   async function resumeJob(id){
@@ -424,27 +442,51 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   function renderContacts(){
     body.innerHTML=heading('02 / 联系家人','熟悉的声音，才是安心的答案。','提前保存家人的真实号码。遇到紧急请求，先打一个电话。')+
       `<div class="contact-layout"><section class="surface"><h2>我的家人 <span id="contactCount">/ ${contacts.length}</span></h2><div id="contactList"></div></section><section class="surface"><span class="decor-star">✳</span><h2>把最重要的人，放在这里。</h2><p class="mode-explanation">请与家人事先确认号码，不要使用可疑消息中提供的新号码。</p><form id="contactForm"><div class="form-field"><label for="contactName">怎么称呼 TA</label><input id="contactName" placeholder="例如：女儿、小陈" required maxlength="30" autocomplete="off"></div><div class="form-field"><label for="contactPhone">熟悉的电话号码</label><input id="contactPhone" placeholder="请输入已确认的号码" type="tel" required maxlength="25" autocomplete="tel"></div><p id="contactError" class="inline-error" role="alert"></p><button class="primary" type="submit">保存家人号码 ${icon('heart')}</button></form></section></div><div class="notice">${icon('lock')}<span>联系人仅保存在当前浏览器。拨号按钮会打开设备电话程序，手机使用更方便。</span></div>`;
+    const status=document.createElement('p');status.id='contactStatus';status.className='interaction-status';status.setAttribute('role','status');$('#contactList').before(status);
     renderContactList();
+    const form=$('#contactForm');
+    const contactError=(message,input)=>{
+      if(input)input.setAttribute('aria-invalid','true');
+      showFeedback($('#contactError'),message,'error');
+    };
+    form.querySelectorAll('input').forEach(input=>input.setAttribute('aria-describedby','contactError'));
+    form.addEventListener('invalid',event=>{
+      event.target.setAttribute('aria-invalid','true');
+      const firstInvalid=[...form.elements].find(input=>input.willValidate&&!input.validity.valid);
+      if(firstInvalid===event.target)contactError(event.target.id==='contactName'?'请填写家人的称呼。':'请填写熟悉的电话号码。',event.target);
+    },true);
+    form.addEventListener('input',event=>{event.target.removeAttribute('aria-invalid');feedback.settle($('#contactError'));$('#contactError').textContent='';});
     $('#contactForm').onsubmit=ev=>{
       ev.preventDefault();const name=$('#contactName').value.trim(),phone=$('#contactPhone').value.trim();
-      if(!name||!/^\+?[\d -]{5,25}$/.test(phone)||phone.replace(/\D/g,'').length<5){$('#contactError').textContent='请填写称呼和有效电话号码。';return;}
+      if(!name||!/^\+?[\d -]{5,25}$/.test(phone)||phone.replace(/\D/g,'').length<5){contactError('请填写称呼和有效电话号码。',!name?$('#contactName'):$('#contactPhone'));return;}
       const normalized=phone.replace(/[^+\d]/g,'');
-      if(contacts.some(c=>c.phone.replace(/[^+\d]/g,'')===normalized)){$('#contactError').textContent='这个号码已经保存，无需重复添加。';return;}
+      if(contacts.some(c=>c.phone.replace(/[^+\d]/g,'')===normalized)){contactError('这个号码已经保存，无需重复添加。',$('#contactPhone'));return;}
       const next=[...contacts,{name,phone}];
-      if(saveArray('qinan-contacts',next)){contacts=next;renderContactList();$('#contactForm').reset();$('#contactError').textContent='';toast('家人的号码已保存，安心多了一份。');}
+      if(!saveArray('qinan-contacts',next)){contactError('当前浏览器无法保存，请检查存储设置后重试。');return;}
+      contacts=next;renderContactList();form.reset();feedback.settle($('#contactError'));$('#contactError').textContent='';
+      form.querySelectorAll('[aria-invalid]').forEach(input=>input.removeAttribute('aria-invalid'));
+      showFeedback($('#contactStatus'),`已保存 ${name} 的号码。`);feedback.cue($('#contactList .contact-row:last-child'),{kind:'success'});
     };
   }
   function renderContactList(){
     const list=$('#contactList');if(!list)return;
+    feedback.settle(list);
     $('#contactCount').textContent=`/ ${contacts.length}`;
     if(!contacts.length){list.innerHTML=`<div class="empty-state">${icon('heart')}<h3>给关心的人，留个位置。</h3><p>先添加一位家人，<br>需要核实时就能快速找到 TA。</p></div>`;return;}
     list.innerHTML=contacts.map((contact,i)=>`<div class="contact-row"><span class="avatar">${e(contact.name[0])}</span><div><h3>${e(contact.name)}</h3><p>${e(contact.phone)}</p></div><a href="tel:${contact.phone.replace(/[^+\d]/g,'')}" aria-label="拨打${e(contact.name)}的电话">${icon('phone')}</a><button class="icon-button" data-remove="${i}" aria-label="移除${e(contact.name)}">${icon('trash')}</button></div>`).join('');
     $$('[data-remove]').forEach(button=>button.onclick=()=>{
       const contact=contacts[+button.dataset.remove];
-      openModal(`<span class="modal-eyebrow">YOUR CIRCLE OF TRUST</span><h2 id="modalTitle">移除这个号码？</h2><p>将从当前浏览器移除 ${e(contact.name)} 的联系方式。</p><div class="modal-actions"><button id="confirmRemove" class="primary">确认移除</button><button id="keepContact" class="secondary">保留号码</button></div>`);
-      $('#confirmRemove').onclick=()=>{const next=contacts.filter(c=>c!==contact);if(saveArray('qinan-contacts',next)){contacts=next;closeModal();renderContactList();toast('联系人已移除。');}};
+      openModal(`<span class="modal-eyebrow">YOUR CIRCLE OF TRUST</span><h2 id="modalTitle">移除这个号码？</h2><p>将从当前浏览器移除 ${e(contact.name)} 的联系方式。</p><p id="contactRemoveError" class="inline-error" role="alert"></p><div class="modal-actions"><button id="confirmRemove" class="primary">确认移除</button><button id="keepContact" class="secondary">保留号码</button></div>`);
+      $('#confirmRemove').onclick=()=>{
+        const index=contacts.indexOf(contact),next=contacts.filter(c=>c!==contact);
+        if(!saveArray('qinan-contacts',next)){showFeedback($('#contactRemoveError'),'暂时无法保存更改，号码仍然保留。请检查存储设置后重试。','error');return;}
+        contacts=next;closeModal();renderContactList();showFeedback($('#contactStatus'),`已移除 ${contact.name} 的号码。`);
+        feedback.cue($('#contactList .contact-row')||$('#contactList .empty-state'),{kind:'change'});
+        ($(`[data-remove="${Math.min(index,contacts.length-1)}"]`)||$('#contactName'))?.focus({preventScroll:true});
+      };
       $('#keepContact').onclick=closeModal;
     });
+    list.querySelectorAll('a[href^="tel:"]').forEach(link=>link.onclick=()=>feedback.cue(link,{kind:'press'}));
   }
 
   function disposePracticeDock(){
@@ -593,30 +635,45 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
 
   function updateHistoryHint(){$('#historyHint').textContent='每一次核实，都有迹可循';}
   function dateText(value){const date=new Date(value);return Number.isNaN(date.getTime())?'时间未提供':date.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'});}
-  async function renderHistory(revision=routeRevision){
-    body.innerHTML=heading('04 / 核验记录','每一次核实，都有迹可循。','查看已完成的核验与报告。')+`<section class="surface" id="historyList"><div class="empty-state"><p>正在读取记录…</p></div></section>`;
-    const controller=viewController;let items;
+  async function renderHistory(revision=routeRevision,{retry=false}={}){
+    if(!retry||!$('#historyList'))body.innerHTML=heading('04 / 核验记录','每一次核实，都有迹可循。','查看已完成的核验与报告。')+`<section class="surface" id="historyList"></section>`;
+    const list=$('#historyList');feedback.settle(list);list.setAttribute('aria-busy','true');
+    list.innerHTML='<div class="request-status" role="status"><i aria-hidden="true"></i><span>正在读取记录…</span></div>';
+    const controller=viewController,requestId=++historyRequest;
+    const current=()=>!destroyed&&!controller.signal.aborted&&revision===routeRevision&&requestId===historyRequest&&list.isConnected;
+    const ready=()=>{list.removeAttribute('aria-busy');if(retry)feedback.cue(list.firstElementChild,{kind:'change'});};
+    let items;
     try{
       const data=await request('/cases',{},controller.signal);items=Array.isArray(data)?data:(data?.items||data?.cases);
       if(!Array.isArray(items)||items.some(item=>!item||typeof item.id!=='string'))throw new Error('暂时无法读取记录，请重试。');
       items=items.filter(item=>!item.demo);
     }catch(error){
-      if(controller.signal.aborted||revision!==routeRevision)return;
-      $('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>暂时无法读取记录。</h3><p>${e(error.message)}</p><button class="secondary" id="retryHistory">重新读取</button></div>`;$('#retryHistory').onclick=async()=>{await renderHistory(revision);if(!destroyed&&revision===routeRevision)entry.revealContent();};return;
+      if(!current())return;
+      list.innerHTML=`<div class="empty-state">${icon('clock')}<h3>暂时无法读取记录。</h3><p role="alert">${e(error.message)}</p><button class="secondary" id="retryHistory">重新读取</button></div>`;
+      let retrying=false;$('#retryHistory').onclick=()=>{if(retrying)return;retrying=true;$('#retryHistory').disabled=true;renderHistory(revision,{retry:true});};ready();feedback.cue(list.querySelector('[role="alert"]'),{kind:'error'});return;
     }
-    if(controller.signal.aborted||revision!==routeRevision)return;
-    if(!items.length){$('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>还没有核验记录。</h3><p>提交一份材料，完成后可以在这里查看。</p><button id="firstCheck" class="primary">开始一次核验 ${icon('arrow')}</button></div>`;$('#firstCheck').onclick=()=>go('check');return;}
-    $('#historyList').innerHTML=items.map((r,i)=>`<div class="history-row"><span class="history-icon">${icon('file')}</span><div><h3>${e(r.name||r.filename||'核验记录')}</h3><small>${e(dateText(r.date||r.created_at))}</small></div><button data-report="${i}">查看报告 ↗</button></div>`).join('');
+    if(!current())return;
+    if(!items.length){list.innerHTML=`<div class="empty-state">${icon('clock')}<h3>还没有核验记录。</h3><p>提交一份材料，完成后可以在这里查看。</p><button id="firstCheck" class="primary">开始一次核验 ${icon('arrow')}</button></div>`;$('#firstCheck').onclick=()=>go('check');ready();return;}
+    list.innerHTML=items.map((r,i)=>`<div class="history-row"><span class="history-icon">${icon('file')}</span><div><h3>${e(r.name||r.filename||'核验记录')}</h3><small>${e(dateText(r.date||r.created_at))}</small></div><button data-report="${i}">查看报告 ↗</button></div>`).join('');
     $$('[data-report]').forEach(button=>button.onclick=()=>go(`report/${encodeURIComponent(items[+button.dataset.report].id)}`));
+    ready();
   }
-  async function renderReportFromId(id,revision){
-    body.innerHTML=heading('核验报告','正在打开核验记录…','');
+  async function renderReportFromId(id,revision,{retry=false}={}){
+    if(!retry||!$('#reportLoadState'))body.innerHTML=heading('核验报告','查看这份核验记录。','读取已保存的材料与核验线索。')+'<section class="surface" id="reportLoadState"></section>';
+    const host=$('#reportLoadState');feedback.settle(host);host.setAttribute('aria-busy','true');host.innerHTML='<div class="request-status" role="status"><i aria-hidden="true"></i><span>正在打开核验记录…</span></div>';
     if(!id){renderReportError('请从核验记录中选择一份报告。');return;}
-    const controller=viewController;
-    try{const data=await request(`/cases/${encodeURIComponent(id)}`,{},controller.signal);if(controller.signal.aborted||revision!==routeRevision)return;currentReport=reportFromResponse(data);renderReport();}
-    catch(error){if(controller.signal.aborted||revision!==routeRevision)return;renderReportError(error.message);}
+    const controller=viewController,requestId=++reportRequest;
+    const current=()=>!destroyed&&!controller.signal.aborted&&revision===routeRevision&&requestId===reportRequest&&host.isConnected;
+    try{const data=await request(`/cases/${encodeURIComponent(id)}`,{},controller.signal);if(!current())return;currentReport=reportFromResponse(data);renderReport();if(retry)feedback.cue($('.result-banner'),{kind:'change'});}
+    catch(error){if(!current())return;renderReportError(error.message,id,revision);}
   }
-  function renderReportError(message){body.innerHTML=heading('核验报告','暂时无法读取这份报告。',e(message))+`<button id="backToHistory" class="primary">返回核验记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');}
+  function renderReportError(message,id,revision){
+    const host=$('#reportLoadState');if(!host)return;feedback.settle(host);host.removeAttribute('aria-busy');
+    host.innerHTML=`<div class="empty-state"><h2>暂时无法读取这份报告。</h2><p role="alert">${e(message)}</p><div class="request-actions">${id?'<button id="retryReport" class="secondary">重新读取报告</button>':''}<button id="backToHistory" class="primary">返回核验记录 ${icon('arrow')}</button></div></div>`;
+    $('#backToHistory').onclick=()=>go('history');
+    if($('#retryReport')){let retrying=false;$('#retryReport').onclick=()=>{if(retrying)return;retrying=true;$('#retryReport').disabled=true;renderReportFromId(id,revision,{retry:true});};}
+    feedback.cue(host.querySelector('[role="alert"]'),{kind:'error'});
+  }
   function reportModules(report){
     const source=report.modules||{};
     return (Array.isArray(source)?source.map((m,i)=>[m?.type||String(i),m]):Object.entries(source)).filter(([key,m])=>key!=='tamper'&&m&&typeof m==='object'&&!m.disabled&&m.status!=='disabled');
@@ -630,8 +687,8 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       `${legacy?'<div class="notice mode-notice">旧版示例 · 不属于本次材料的检测结果</div>':''}<div class="result-banner">${icon('scan')}<div><h2>结果摘要</h2><p>${e(summary)}</p></div></div>`+
       (legacy?'':renderActualModules(report))+
       `<section class="surface report-next"><h2>下一步</h2><ul>${(steps.length?steps:['通过熟悉的联系方式，确认本人及具体请求。']).map(step=>`<li>${e(step)}</li>`).join('')}</ul></section><div class="result-actions"><button id="reportContacts" class="primary">联系家人 ${icon('phone')}</button><button id="exportReport" class="secondary">下载记录</button><button id="printReport" class="secondary">打印报告</button><button id="anotherCheck" class="text-button">再核验一份 ${icon('arrow')}</button></div><details class="surface report-details"><summary>完整记录</summary><pre class="raw-report">${e(JSON.stringify(report,null,2))}</pre></details>`;
-    $('#reportContacts').onclick=()=>go('contacts');$('#anotherCheck').onclick=()=>{clearFile();fileError='';go('check');};$('#printReport').onclick=()=>window.print();
-    $('#exportReport').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`qinan-${report.id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('记录已下载。');};
+    $('#reportContacts').onclick=()=>go('contacts');$('#anotherCheck').onclick=()=>{clearFile();fileError='';go('check');};$('#printReport').onclick=()=>{feedback.cue($('#printReport'),{kind:'press'});window.print();};
+    $('#exportReport').onclick=()=>{feedback.cue($('#exportReport'),{kind:'press'});const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`qinan-${report.id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('记录文件已生成，下载已开始。');};
   }
   function renderActualModules(report){
     const modules=reportModules(report),labels={audio:'声音检查',video:'视频检查',image:'图片检查',chat:'聊天分析'},statuses={flagged:'需要核实',below:'未发现超过提醒线的线索',uncertain:'存在弱线索',unavailable:'未形成判断'};
@@ -657,7 +714,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
 
   function pauseAmbient(){homeMotion.finish?.();$$('.portal-node').forEach(node=>{utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');});}
   function syncMotion(){
-    document.body.classList.toggle('motion-off',paused||mediaQuery.matches);homeMotion.setPaused?.(!motionEnabled());entry.setPaused(!motionEnabled());guide?.setPaused(!motionEnabled());
+    document.body.classList.toggle('motion-off',paused||mediaQuery.matches);homeMotion.setPaused?.(!motionEnabled());portalMotion.setPaused?.(!motionEnabled());feedback.setPaused(!motionEnabled()||printing);entry.setPaused(!motionEnabled());guide?.setPaused(!motionEnabled());
     const motionOff=!motionEnabled();
     $('#motionButton').innerHTML=icon(motionOff?'play':'pause')+`<span class="motion-button-label">${motionOff?'恢复动效':'暂停动效'}</span>`;$('#motionButton').setAttribute('aria-label',motionOff?'恢复动态效果':'暂停动态效果');$('#motionButton').dataset.paused=String(motionOff);
     $('#motionState').textContent=motionOff?'MOTION OFF':'MOTION ON';
@@ -697,13 +754,18 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     });
   }
   syncMotion();updateHistoryHint();
-  const beginInterface=()=>{if(destroyed)return;startupPending=false;setupPortalMotion();syncMotion();route();};
+  const beginInterface=()=>{if(destroyed)return;startupPending=false;setupPortalMotion();syncMotion();route();portalMotion.setReady?.(true);};
   if(startReady)Promise.resolve(startReady).then(beginInterface,beginInterface);else beginInterface();
-  const onPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.dataset.wasOpen=String(details.open);details.open=true;});};
-  const afterPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
+  const detailsFeedback=event=>{
+    const details=event.target;if(!details.matches?.('.report-details,.module-details'))return;feedback.settle(details);
+    if(details.open&&details.isConnected&&page==='report'&&!printing)[...details.children].filter(child=>child.tagName!=='SUMMARY').slice(0,6).forEach(node=>feedback.cue(node,{kind:'change'}));
+  };
+  body.addEventListener('toggle',detailsFeedback,true);
+  const onPrint=()=>{printing=true;feedback.setPaused(true);$$('.report-details,.module-details').forEach(details=>{details.dataset.wasOpen=String(details.open);details.open=true;});};
+  const afterPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});printing=false;feedback.setPaused(!motionEnabled());};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
     refreshIslands(){if(destroyed||startupPending)return;guide?.refreshIslands();if(entry.pending){entry.refreshIslands();return;}if(page==='check'){if(activeTask)renderProcessing();else{syncType();renderFile();}}else if(page==='practice')refreshPracticeIslands();},
-    destroy(){entry.destroy();guide?.destroy();guide=null;settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;viewController?.abort();api.destroy();homeMotion.destroy?.();clearFile();clearTimeout(toastTimer);utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    destroy(){feedback.destroy();portalMotion.destroy?.();body.removeEventListener('toggle',detailsFeedback,true);entry.destroy();guide?.destroy();guide=null;settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;viewController?.abort();api.destroy();homeMotion.destroy?.();clearFile();clearTimeout(toastTimer);utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

@@ -19,7 +19,12 @@ test('real Anime completes the visible module intro before exposing quiz control
     record.animation=animate(target,{...params,onComplete(){record.done=true;params.onComplete?.();}});record.animation.pause();return record.animation;
   },utils,createSpring,visual:{pause(){},resume(){},focus(){},dispose(){},async toggleForm(){return 'shield';}}});
   t.after(()=>{app.destroy();engine.pause();w.close();for(const [key,descriptor] of prior){if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}assert.deepEqual(errors,[]);});
-  const $=selector=>w.document.querySelector(selector),tick=()=>new Promise(resolve=>setTimeout(resolve,8));
+  const $=selector=>w.document.querySelector(selector);
+  const until=async(condition,label)=>{
+    const deadline=Date.now()+1000;
+    while(Date.now()<deadline){if(condition())return;await new Promise(resolve=>setTimeout(resolve,10));}
+    assert.fail(`Timed out waiting for ${label}`);
+  };
   const finishShell=()=>{
     for(let count=0;count<4&&!$('.workspace-entry.is-playing');count++){
       const phase=animations.findLast(record=>!record.done&&[90,220,240,520].includes(record.params.duration));
@@ -27,7 +32,7 @@ test('real Anime completes the visible module intro before exposing quiz control
     }
     assert.ok($('.workspace-entry.is-playing'));
   };
-  $('.node-practice').click();await tick();
+  $('.node-practice').click();await until(()=>$('.workspace-entry'),'the practice route to prepare its intro');
   assert.ok($('.workspace-entry'));assert.equal($('.workspace-entry.is-playing'),null);assert.equal($('#questionTitle'),null);
   finishShell();
   const clock=animations.findLast(record=>record.params.duration===700&&record.target?.value===0);
@@ -38,9 +43,9 @@ test('real Anime completes the visible module intro before exposing quiz control
   $('[data-answer="1"]').dispatchEvent(new w.Event('pointerdown',{bubbles:true}));$('[data-answer="1"]').click();
   assert.ok($('#feedback'));const exits=animations.filter(record=>record.params.duration===360&&!record.done);for(const record of exits)record.animation.complete();
   assert.equal($('#nextQuestion').disabled,false,'answered content becomes actionable after its own exit animation');
-  w.location.hash='contacts';await tick();assert.ok($('.entry-contacts'));
+  w.location.hash='contacts';await until(()=>$('.entry-contacts'),'the contact route to prepare its intro');assert.ok($('.entry-contacts'));
   const cancelled=animations.findLast(record=>record.params.duration===700&&record.target?.value===0);
-  $('#closeWorkspace').click();await tick();assert.equal($('#workspaceBackdrop').classList.contains('is-visible'),false);
+  $('#closeWorkspace').click();await until(()=>!$('#workspaceBackdrop').classList.contains('is-visible'),'the closing route to clear its backdrop');assert.equal($('#workspaceBackdrop').classList.contains('is-visible'),false);
   cancelled.params.onComplete?.();cancelled.animation.complete();assert.equal($('#contactForm'),null,'the old intro cannot commit during return');
   for(let count=0;count<3&&$('#workspace').open;count++){
     const phase=animations.findLast(record=>!record.done&&[90,200,460].includes(record.params.duration));assert.ok(phase);phase.animation.complete();

@@ -4,12 +4,14 @@ import './fui.css';
 import './typography.css';
 import './background-layer.css';
 import './home-motion.css';
+import './portal-motion.css';
 import './transition-content.css';
 import './practice.css';
 import './product.css';
 import './workspace-intro.css';
 import './usage-guide.css';
 import './interaction-polish.css';
+import './interaction-feedback.css';
 import './boot.css';
 import { createBootSequence } from './boot.js';
 import { animate, utils, createSpring, createLayout, createTimeline } from 'animejs';
@@ -17,6 +19,8 @@ import { initApp } from './app.js';
 import { createHomeMotion } from './home-motion.js';
 import { createFontReadiness } from './font-ready.js';
 import { createAmbientBackground } from './ambient-background.js';
+import { portalIcon } from './portal-icons.js';
+import { createPortalMotion } from './portal-motion.js';
 
 // Mount the usable interface first; the 3D engine is a separate lazy chunk.
 let scene, boot, app, homeMotion, disposed=false;
@@ -24,6 +28,8 @@ const islands={};
 const fontReadiness=createFontReadiness();
 document.querySelector('.scene-placeholder')?.classList.remove('is-ready');
 const desired={paused:false,focused:false,portal:null,portalId:null,entrance:1};
+document.querySelectorAll('[data-portal-icon]').forEach(host=>{host.innerHTML=portalIcon(host.dataset.portalIcon);host.setAttribute('aria-hidden','true');});
+const portalMotion=createPortalMotion({root:document});
 // The environment is a usable layer of its own, never a side effect of WebGL.
 const ambient=createAmbientBackground({host:document.querySelector('.stage-background'),animate,motionEnabled:()=>!desired.paused&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches});
 const trackAmbientPointer=event=>{
@@ -37,7 +43,7 @@ const visual={
   pause(){desired.paused=true;ambient.setPaused(true);scene?.pause();boot?.setPaused(true);},
   resume(){desired.paused=false;ambient.setPaused(false);scene?.resume();},
   focus(value){desired.focused=value;ambient.setCovered(value);scene?.focus(value);},
-  setPortalFocus(value,portalId=value?.portalId??null){desired.portal=value;desired.portalId=portalId;ambient.setPortalFocus(portalId);scene?.setPortalFocus?.(value,portalId);},
+  setPortalFocus(value,portalId=value?.portalId??null){desired.portal=value;desired.portalId=portalId;scene?.setPortalFocus?.(value,portalId);},
   setEntranceProgress(value){desired.entrance=value;ambient.setEntranceProgress(value);const placeholder=document.querySelector('.scene-placeholder');if(placeholder)placeholder.style.visibility=value<=0?'hidden':'';scene?.setEntranceProgress?.(value);},
   pointerPulse(x,y){scene?.pointerPulse?.(x,y);},
   async toggleForm(){await sceneReady;return disposed?'shield':scene.toggleForm();},
@@ -75,7 +81,6 @@ const sceneReady=import('./scene.js').then(({createSanctuary})=>{
 const islandsReady=import('./rare-islands.jsx').then(module=>{
   if(disposed)return;
   Object.assign(islands,module);
-  ambient.refreshIslands(islands);
   app?.refreshIslands();
 }).catch(()=>({fallback:true,label:'基础交互已就绪'}));
 let motionPaused=false;
@@ -94,6 +99,6 @@ boot=createBootSequence({
 homeMotion=createHomeMotion({createTimeline,visual,motionEnabled:()=>!document.body.classList.contains('motion-off')&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches});
 homeMotion.prepare();
 boot.finished.then(details=>{fontReadiness.finalize();homeMotion.play(details);});
-app=initApp({animate,utils,createSpring,createLayout,visual,islands,homeMotion,apiBase:import.meta.env.VITE_API_BASE_URL||'/api',startReady:boot.finished});
+app=initApp({animate,utils,createSpring,createLayout,visual,islands,homeMotion,portalMotion,apiBase:import.meta.env.VITE_API_BASE_URL||'/api',startReady:boot.finished});
 markInterfaceReady();
 if(import.meta.hot)import.meta.hot.dispose(()=>app.destroy());

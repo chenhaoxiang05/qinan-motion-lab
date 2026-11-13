@@ -19,7 +19,7 @@ test('real Rare UI islands preserve upload, score and review interactions', asyn
   };
   try {
     await build({ entryPoints: ['src/rare-islands.jsx'], bundle: true, format: 'esm', outfile, packages: 'external', loader: { '.css': 'empty' }, logLevel: 'silent' });
-    for (const name of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node', 'Image', 'screen', 'navigator']) install(name, dom.window[name]);
+    for (const name of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node', 'NodeList', 'HTMLCollection', 'Image', 'screen', 'navigator']) install(name, dom.window[name]);
     install('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
     install('requestAnimationFrame', dom.window.requestAnimationFrame.bind(dom.window));
     install('cancelAnimationFrame', dom.window.cancelAnimationFrame.bind(dom.window));
@@ -28,7 +28,7 @@ test('real Rare UI islands preserve upload, score and review interactions', asyn
     window.matchMedia = () => mediaQuery;
     install('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     window.ResizeObserver = globalThis.ResizeObserver;
-    const { mountUpload, mountStatus, mountCounter, mountFaq, mountMaterialTabs, mountMatrixField } = await import(pathToFileURL(outfile).href);
+    const { mountUpload, mountStatus, mountCounter, mountFaq, mountMaterialTabs } = await import(pathToFileURL(outfile).href);
     const host = document.querySelector('#upload');
     const statusHost = document.querySelector('#status');
     let choices = 0;
@@ -61,6 +61,118 @@ test('real Rare UI islands preserve upload, score and review interactions', asyn
     assert.equal(host.childElementCount, 0, 'destroyed upload cannot render stale state');
     assert.equal(statusHost.childElementCount, 0);
     assert.equal(host.classList.contains('rare-island'), false);
+
+    await t.test('upload copy moves locally while current type, focus and native picker activation remain immediate', async () => {
+      let pickerCalls = 0, trustedStack = false;
+      const upload = mountUpload(host, {
+        kind: 'audio', label: '声音', hint: 'MP3 / WAV / M4A', detail: '单个文件不超过 100MB', paused: false,
+        onChoose() { assert.equal(trustedStack, true, 'the picker callback remains in its trusted click stack'); pickerCalls++; },
+        onRemove() { upload.update({ file: null, url: null }); },
+      });
+      try {
+        const trigger = host.querySelector('[data-upload-action="choose"]');
+        const folder = host.querySelector('[data-slot="folder"]');
+        const title = host.querySelector('.qi-upload-title .qi-copy-current');
+        trigger.focus();
+        upload.update({ kind: 'video', label: '视频', hint: 'MP4 / MOV / WEBM', detail: '时长不超过 3 分钟' });
+        assert.strictEqual(document.activeElement, trigger);
+        assert.strictEqual(host.querySelector('[data-upload-action="choose"]'), trigger);
+        assert.strictEqual(host.querySelector('[data-slot="folder"]'), folder, 'changing material never remounts the Rare folder');
+        assert.strictEqual(host.querySelector('.qi-upload-title .qi-copy-current'), title);
+        assert.equal(title.textContent, '选择视频', 'the latest copy is committed before its animation');
+        assert.equal(trigger.getAttribute('aria-label'), '选择视频');
+        assert.equal(host.querySelector('.qi-upload-hint .qi-copy-current').textContent, 'MP4 / MOV / WEBM');
+        assert.ok(host.querySelectorAll('.qi-copy-previous').length > 0);
+        assert.ok([...host.querySelectorAll('.qi-copy-previous')].every(node => node.getAttribute('aria-hidden') === 'true'), 'visual exit copies cannot duplicate the accessible text');
+        await new Promise(resolve => setTimeout(resolve, 55));
+        assert.ok(Number(title.style.opacity) >= 0.62 && Number(title.style.opacity) < 1, 'the real Anime engine produces a readable intermediate opacity');
+        assert.match(title.style.transform, /translateY/, 'copy movement is applied to the text, not the button');
+        assert.equal(trigger.style.opacity, '');
+        assert.equal(trigger.style.transform, '');
+        assert.ok(host.querySelector('.qi-folder-pulse').style.transform, 'the same folder gets a short local reset pulse');
+
+        upload.update({ kind: 'image', label: '照片', hint: 'JPG / PNG', detail: '单张照片不超过 100MB' });
+        upload.update({ kind: 'chat', label: '截图', hint: 'JPG / PNG / WEBP', detail: '每次一张聊天截图' });
+        assert.equal(title.textContent, '选择截图');
+        assert.equal(trigger.getAttribute('aria-label'), '选择聊天截图');
+        assert.ok([...host.querySelectorAll('.qi-upload-copy')].every(node => node.querySelectorAll('.qi-copy-previous').length <= 1), 'rapid changes retain at most the most recent old line');
+        await new Promise(resolve => setTimeout(resolve, 290));
+        assert.equal(host.querySelector('.qi-copy-previous'), null);
+        assert.equal(host.querySelector('[data-feedback-running]'), null);
+        assert.equal(title.textContent, '选择截图');
+        assert.equal(title.style.opacity, '');
+        assert.equal(title.style.transform, '');
+        trustedStack = true; trigger.click(); trustedStack = false;
+        assert.equal(pickerCalls, 1);
+        assert.equal(host.querySelector('.qi-upload').dataset.open, 'true');
+
+        upload.update({ kind: 'audio', label: '声音', open: false, file: { name: 'voice.wav', size: 2048 }, url: 'blob:voice' });
+        const preview = host.querySelector('audio[controls]');
+        assert.ok(preview, 'accepted audio gets usable native controls immediately');
+        assert.ok(host.querySelector('.qi-selected-file').dataset.feedbackRunning);
+        assert.strictEqual(host.querySelector('[data-upload-action="choose"]'), trigger);
+        upload.update({ validating: true, detail: '正在检查文件' });
+        assert.strictEqual(host.querySelector('audio'), preview, 'copy changes do not remount or restart native media');
+        host.querySelector('[data-upload-action="remove"]').click();
+        assert.equal(host.querySelector('audio'), null, 'removed media is never retained in an exiting hidden preview');
+        assert.strictEqual(document.activeElement, trigger, 'removing a file returns focus to the stable chooser');
+        assert.ok(host.querySelector('.qi-upload-capabilities').dataset.feedbackRunning);
+        assert.equal(pickerCalls, 1, 'remove feedback cannot open the picker');
+      } finally { upload.destroy(); }
+    });
+
+    await t.test('upload feedback settles on pause, reduced motion, hidden pages and destruction without replay', async () => {
+      const originalHidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+      let hidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      const baselineListeners = mediaListeners.size;
+      const upload = mountUpload(host, { kind: 'audio', label: '声音', hint: 'MP3 / WAV', detail: '100MB', paused: false });
+      const title = host.querySelector('.qi-upload-title .qi-copy-current');
+      const readable = () => {
+        assert.equal(title.style.opacity, '', 'settled copy has no residual opacity or queued DOM writes');
+        assert.equal(title.style.transform, '');
+        assert.equal(host.querySelector('.qi-copy-previous'), null);
+        assert.equal(host.querySelector('[data-feedback-running]'), null);
+      };
+      try {
+        upload.update({ kind: 'video', label: '视频' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        upload.update({ paused: true });
+        readable();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        readable();
+        assert.equal(title.textContent, '选择视频');
+        upload.update({ paused: false });
+        readable();
+        upload.update({ kind: 'image', label: '照片' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        hidden = true; document.dispatchEvent(new window.Event('visibilitychange'));
+        await new Promise(resolve => setTimeout(resolve, 50));
+        readable();
+        hidden = false; document.dispatchEvent(new window.Event('visibilitychange'));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        readable();
+        upload.update({ kind: 'chat', label: '截图' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        mediaQuery.matches = true; mediaListeners.forEach(listener => listener({ matches: true }));
+        await new Promise(resolve => setTimeout(resolve, 50));
+        readable();
+        mediaQuery.matches = false; mediaListeners.forEach(listener => listener({ matches: false }));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        readable();
+        upload.update({ kind: 'audio', label: '声音' });
+        upload.destroy();
+        assert.equal(mediaListeners.size, baselineListeners, 'upload feedback removes its media listeners');
+        await new Promise(resolve => setTimeout(resolve, 290));
+        upload.update({ kind: 'video' });
+        assert.equal(host.childElementCount, 0, 'a stale animation or update cannot remount a removed island');
+        assert.equal(title.style.opacity, '');
+        assert.equal(title.style.transform, '');
+      } finally {
+        upload.destroy(); mediaQuery.matches = false;
+        if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden); else delete document.hidden;
+      }
+    });
 
     await t.test('counter updates the same island and exposes one current accessible score', async () => {
       const counterHost = document.querySelector('#counter');
@@ -174,102 +286,6 @@ test('real Rare UI islands preserve upload, score and review interactions', asyn
       assert.equal(tabsHost.getAttribute('aria-label'), '选择材料类型');
       assert.equal(tabsHost.classList.contains('qi-material-tabs-host'), false);
       tabsHost.remove();
-    });
-
-    await t.test('Matrix field caps canvas resolution and stops frames on pause, visibility, reduced motion and destroy', () => {
-      const originalRaf = window.requestAnimationFrame;
-      const originalCancel = window.cancelAnimationFrame;
-      const originalGetContext = window.HTMLCanvasElement.prototype.getContext;
-      const originalMatchMedia = window.matchMedia;
-      const originalHidden = Object.getOwnPropertyDescriptor(document, 'hidden');
-      const originalDpr = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
-      const pending = new Map();
-      let serial = 0, draws = 0, arcs = 0, hidden = false;
-      const cancelled = [];
-      const mobile = { matches: false, listeners: new Set(), addEventListener(_, fn) { this.listeners.add(fn); }, removeEventListener(_, fn) { this.listeners.delete(fn); } };
-      const reduce = { ...mobile, listeners: new Set() };
-      const context = { clearRect() { draws++; }, setTransform() {}, beginPath() {}, arc() { arcs++; }, fill() {} };
-      window.HTMLCanvasElement.prototype.getContext = () => context;
-      window.requestAnimationFrame = callback => { const id = ++serial; pending.set(id, callback); return id; };
-      window.cancelAnimationFrame = id => { cancelled.push(id); pending.delete(id); };
-      window.matchMedia = query => query.includes('prefers-reduced-motion') ? reduce : mobile;
-      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
-      Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 4 });
-      const matrixHost = document.createElement('div');
-      document.body.append(matrixHost);
-      let matrix;
-      const tick = now => {
-        const current = [...pending.values()]; pending.clear(); current.forEach(callback => callback(now));
-      };
-      try {
-        matrix = mountMatrixField(matrixHost, { paused: true });
-        const canvas = matrixHost.querySelector('canvas');
-        const field = matrixHost.querySelector('[data-slot="matrix-orb"]');
-        assert.ok(canvas);
-        assert.equal(matrixHost.getAttribute('aria-hidden'), 'true');
-        assert.equal(matrixHost.textContent, '', 'decorative field has no invented detection status');
-        assert.equal(canvas.width, 380, '190px field caps devicePixelRatio at 2');
-        assert.equal(arcs, 169, 'desktop rendering uses only a 13 × 13 field');
-        assert.equal(pending.size, 0, 'initial paused mount never starts a frame loop');
-        matrix.update({ paused: false, activePortal: 'check' });
-        const start = performance.now();
-        tick(start + 25);
-        assert.ok(draws > 1);
-        assert.equal(pending.size, 1);
-        assert.equal(field.dataset.activePortal, 'check');
-        const beforePause = draws;
-        matrix.update({ paused: true });
-        assert.equal(pending.size, 0);
-        assert.ok(cancelled.length > 0);
-        tick(start + 1000);
-        assert.equal(draws, beforePause, 'pausing retains the last frame without drawing');
-        matrix.update({ paused: false, activePortal: 'history' });
-        assert.strictEqual(matrixHost.querySelector('canvas'), canvas, 'portal changes retain the same canvas');
-        assert.equal(field.dataset.activePortal, 'history');
-        hidden = true; document.dispatchEvent(new window.Event('visibilitychange'));
-        assert.equal(pending.size, 0, 'hidden documents cannot keep ambient frames alive');
-        hidden = false; document.dispatchEvent(new window.Event('visibilitychange'));
-        assert.equal(pending.size, 1);
-        reduce.matches = true; reduce.listeners.forEach(listener => listener());
-        assert.equal(pending.size, 0, 'a live reduced-motion change stops the loop');
-        reduce.matches = false; reduce.listeners.forEach(listener => listener());
-        assert.equal(pending.size, 1);
-        mobile.matches = true;
-        const previousArcs = arcs;
-        mobile.listeners.forEach(listener => listener());
-        assert.equal(arcs - previousArcs, 81, 'mobile redraw uses a smaller 9 × 9 field');
-        const mobileStart = performance.now();
-        const mobileDraws = draws;
-        for (const offset of [8, 16, 24, 40, 48, 56, 64, 80]) tick(mobileStart + offset);
-        assert.ok(draws - mobileDraws <= 2, 'mobile canvas painting stays at or below 30fps');
-        const stale = [...pending.values()][0];
-        matrix.destroy();
-        assert.equal(pending.size, 0);
-        assert.equal(mobile.listeners.size, 0);
-        assert.equal(reduce.listeners.size, 0);
-        const afterDestroy = draws;
-        stale?.(performance.now() + 2000);
-        window.dispatchEvent(new window.Event('resize'));
-        document.dispatchEvent(new window.Event('visibilitychange'));
-        matrix.update({ paused: false });
-        assert.equal(draws, afterDestroy, 'stale callbacks and updates never draw after unmount');
-        assert.equal(pending.size, 0);
-        assert.equal(matrixHost.childElementCount, 0);
-        assert.equal(matrixHost.hasAttribute('aria-hidden'), false, 'the adapter restores its host attributes');
-
-        window.HTMLCanvasElement.prototype.getContext = () => null;
-        matrix = mountMatrixField(matrixHost, { paused: false });
-        assert.ok(matrixHost.querySelector('[data-slot="matrix-orb-fallback"]'), 'canvas-unavailable browsers keep a visible static field');
-        assert.equal(pending.size, 0);
-      } finally {
-        matrix?.destroy(); matrixHost.remove();
-        window.requestAnimationFrame = originalRaf;
-        window.cancelAnimationFrame = originalCancel;
-        window.HTMLCanvasElement.prototype.getContext = originalGetContext;
-        window.matchMedia = originalMatchMedia;
-        if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden); else delete document.hidden;
-        if (originalDpr) Object.defineProperty(window, 'devicePixelRatio', originalDpr); else delete window.devicePixelRatio;
-      }
     });
 
     await t.test('system reduced motion shows final scores and expanded answers without hidden initial states', () => {

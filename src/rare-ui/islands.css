@@ -11,13 +11,19 @@
 .rare-island .qi-upload-marker { display:block; text-align:left; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.12em; color:var(--qi-muted); }
 .rare-island .qi-folder-trigger { display:flex; flex-direction:column; align-items:center; width:100%; min-height:330px; padding:0 12px 22px; border:0; background:transparent; cursor:pointer; border-radius:0; }
 .rare-island .qi-folder-stage { display:block; width:100%; height:292px; padding-top:116px; pointer-events:none; overflow:visible; }
+.rare-island .qi-folder-pulse { display:block; width:100%; height:176px; transform-origin:50% 60%; }
 .rare-island [data-slot="folder"] { width:100%; height:176px; overflow:visible; }
 .rare-island [data-slot="folder"] svg { max-width:none; overflow:visible; }
 .rare-island .qi-upload-title { display:block; margin-top:10px; font-size:16px; font-weight:650; line-height:1.6; color:var(--qi-paper); }
-.rare-island .qi-upload-title > span { display:inline-block; margin-left:8px; color:var(--qi-acid); }
-.rare-island .qi-upload-hint { margin-top:7px; color:var(--qi-muted); font-size:12px; line-height:1.6; }
+.rare-island .qi-upload-title > .qi-upload-arrow { display:inline-block; margin-left:8px; color:var(--qi-acid); }
+.rare-island .qi-upload-copy { position:relative; display:inline-grid; min-width:0; max-width:100%; vertical-align:top; }
+.rare-island .qi-copy-current { display:block; grid-area:1/1; min-width:0; overflow-wrap:anywhere; }
+.rare-island .qi-copy-previous { position:absolute; inset:0; display:block; opacity:.42; pointer-events:none; user-select:none; overflow-wrap:anywhere; }
+.rare-island .qi-upload-hint { display:block; width:100%; min-height:3.2em; margin-top:7px; color:var(--qi-muted); font-size:12px; line-height:1.6; }
+.rare-island .qi-upload-hint .qi-copy-current { min-height:3.2em; }
 .rare-island .qi-upload-capabilities { display:flex; justify-content:center; flex-wrap:wrap; gap:20px; border-top:1px solid #ffffff19; padding-top:15px; color:var(--qi-muted); font-size:12px; }
-.rare-island .qi-upload-capabilities span::before { content:'+'; color:var(--qi-acid); margin-right:6px; }
+.rare-island .qi-upload-capabilities > span::before { content:'+'; color:var(--qi-acid); margin-right:6px; }
+.rare-island .qi-upload-capabilities > span:last-child { min-height:1.6em; }
 .rare-island .qi-upload-selected { display:grid; grid-template-columns:minmax(210px,.8fr) minmax(0,1.2fr); gap:24px; align-items:center; }
 .rare-island .qi-upload-selected .qi-folder-trigger { min-height:306px; padding-inline:0; }
 .rare-island .qi-selected-file { min-width:0; border-left:1px solid #ffffff26; padding-left:24px; }
@@ -66,9 +72,6 @@
 .rare-island .qi-material-tab:focus-visible { outline:2px solid var(--qi-paper); outline-offset:3px; z-index:2; }
 .rare-island .qi-material-tab svg { width:16px; height:16px; }
 .rare-island .qi-material-tabs[data-paused] .qi-material-tab { transition:none; }
-.rare-island.qi-matrix-host { pointer-events:none; display:grid; place-items:center; }
-.rare-island.qi-matrix-host [data-slot="matrix-orb"] { max-width:100%; flex-shrink:1; }
-.rare-island.qi-matrix-host canvas { display:block; max-width:100%; height:auto; }
 @media(max-width:420px) {
   .rare-island .qi-material-tab { padding-inline:4px; font-size:12px; gap:4px; }
   .rare-island .qi-material-tab svg { width:14px; height:14px; }
@@ -88,9 +91,12 @@
 @container rare-upload (max-width:600px) {
   .rare-island .qi-upload-selected { grid-template-columns:1fr; gap:16px; }
   .rare-island .qi-selected-file { border-left:0; border-top:1px solid #ffffff26; padding:20px 0 0; }
+  .rare-island .qi-upload-capabilities { row-gap:8px; }
+  .rare-island .qi-upload-capabilities > span:last-child { flex-basis:100%; min-height:3.2em; text-align:center; }
+  .rare-island .qi-upload-capabilities > span:last-child::before { display:none; }
 }
 @container rare-upload (max-width:260px) {
-  .rare-island .qi-folder-stage > [data-slot="folder"] { transform:scale(.85); transform-origin:50% 50%; }
+  .rare-island .qi-folder-stage [data-slot="folder"] { transform:scale(.85); transform-origin:50% 50%; }
   .rare-island .qi-upload-title { font-size:15px; }
   .rare-island .qi-upload-capabilities { gap:12px; }
 }

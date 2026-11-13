@@ -25,7 +25,7 @@ function setup(t,options={}){
   const animations=[];
   const motion={animate(target,params){animations.push({target,params});if(options.animate)return options.animate(target,params);if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
   const visual={pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){},...options.visual};
-  const app=initApp({...motion,createLayout:options.createLayout,visual,apiBase:options.apiBase,homeMotion:options.homeMotion,islands:options.islands,startReady:options.startReady,entryDuration:options.entryDuration??0,...(options.delay?{delay:options.delay}:{})});
+  const app=initApp({...motion,createLayout:options.createLayout,visual,apiBase:options.apiBase,homeMotion:options.homeMotion,portalMotion:options.portalMotion,islands:options.islands,startReady:options.startReady,entryDuration:options.entryDuration??0,...(options.delay?{delay:options.delay}:{})});
   const $=s=>w.document.querySelector(s);
   const goto=async hash=>{w.location.hash=hash;await tick();};
   const selectFile=async file=>{Object.defineProperty($('#fileInput'),'files',{value:[file],configurable:true});$('#fileInput').dispatchEvent(new w.Event('change'));await tick();};
@@ -44,7 +44,7 @@ test('floating entry opens a window; switching material types preserves the wind
     assert.equal($(`#type-${type}`).getAttribute('aria-selected'),'true');
     assert.equal($('#analyzeButton').disabled,true);
   }
-  assert.equal(animations.length,count,'type switches do not replay any entrance animation');
+  assert.ok(animations.slice(count).every(animation=>animation.target.feedbackKind==='change'),'type switches only animate local copy, without replaying any window entrance');
   assert.equal($('#fileInput').accept,'.jpg,.jpeg,.png,.webp');
 });
 
@@ -172,6 +172,63 @@ test('contacts update their count immediately, reject duplicate numbers and conf
   $('[data-remove]').click();assert.equal($('#modal').open,true);$('#keepContact').click();assert.equal($('#contactCount').textContent,'/ 1');
   $('[data-remove]').click();$('#confirmRemove').click();assert.equal($('#contactCount').textContent,'/ 0');
   assert.deepEqual(JSON.parse(w.localStorage.getItem('qinan-contacts')),[]);
+});
+
+test('local upload feedback preserves current contents, trusted picker timing and focus after removal',async t=>{
+  const local=[];const {$,goto,w,selectFile}=setup(t,{animate(target,params){
+    if('feedbackProgress' in target){const job={target,params,cancelled:false,cancel(){this.cancelled=true;}};local.push(job);return job;}
+    params.onComplete?.();return {cancel(){},pause(){},resume(){}};
+  }});await goto('check');$('#type-image').click();
+  assert.equal($('#dropzone h2').dataset.feedbackKind,'change');assert.equal($('#dropzone>p').dataset.feedbackKind,'change');
+  let clicks=0;$('#fileInput').click=()=>{clicks++;assert.equal($('#dropzone').dataset.pickerOpen,'true');};$('#chooseFile').click();assert.equal(clicks,1);$('#fileInput').dispatchEvent(new w.Event('cancel'));
+  await selectFile(new w.File(['photo'],'one.png',{type:'image/png'}));const preview=$('.file-preview');
+  await selectFile(new w.File(['bad'],'wrong.mp3'));assert.strictEqual($('.file-preview'),preview);assert.equal($('#fileError').dataset.feedbackKind,'error');
+  const error=local.at(-1);await selectFile(new w.File(['bad'],'wrong.mp3'));assert.equal(error.cancelled,true);
+  $('#removeFile').focus();$('#removeFile').click();assert.equal(w.document.activeElement.id,'chooseFile');assert.equal($('#analyzeButton').disabled,true);
+  $('#motionButton').click();assert.equal($('#dropzone [data-feedback-kind]'),null);assert.equal(w.document.documentElement.dataset.feedbackMotion,'paused');
+});
+
+test('contact required and storage errors stay inline, preserve data, and recover with correct focus',async t=>{
+  const {$,goto,w}=setup(t);await goto('contacts');$('#contactForm').requestSubmit();
+  assert.match($('#contactError').textContent,/称呼/);assert.equal($('#contactName').getAttribute('aria-invalid'),'true');assert.equal($('#contactPhone').getAttribute('aria-invalid'),'true');
+  const prototype=Object.getPrototypeOf(w.localStorage),original=prototype.setItem;let fail=true;
+  prototype.setItem=function(key,value){if(fail&&key==='qinan-contacts')throw new Error('blocked');return original.call(this,key,value);};t.after(()=>{prototype.setItem=original;});
+  $('#contactName').value='妈妈';$('#contactPhone').value='13800138000';$('#contactForm').requestSubmit();
+  assert.equal($('#contactCount').textContent,'/ 0');assert.match($('#contactError').textContent,/无法保存/);assert.equal($('#contactName').value,'妈妈');
+  fail=false;$('#contactForm').requestSubmit();assert.match($('#contactStatus').textContent,/已保存 妈妈/);assert.equal($('#contactName').hasAttribute('aria-invalid'),false);
+  $('[data-remove]').click();fail=true;$('#confirmRemove').click();assert.equal($('#modal').open,true);assert.match($('#contactRemoveError').textContent,/仍然保留/);assert.equal($('#contactCount').textContent,'/ 1');
+  fail=false;$('#confirmRemove').click();assert.equal($('#modal').open,false);assert.equal($('#contactCount').textContent,'/ 0');assert.match($('#contactStatus').textContent,/已移除 妈妈/);assert.equal(w.document.activeElement.id,'contactName');
+});
+
+test('history retries only its existing list and cannot repaint a new route',async t=>{
+  const retry=pending();let calls=0;const {$,goto}=setup(t,{fetch:()=>++calls===1?Promise.reject(new TypeError('offline')):retry.promise});await goto('history');
+  const list=$('#historyList'),heading=$('.page-heading');$('#workspaceBody').scrollTop=120;$('#retryHistory').click();
+  assert.strictEqual($('#historyList'),list);assert.strictEqual($('.page-heading'),heading);assert.equal(list.getAttribute('aria-busy'),'true');assert.match(list.textContent,/正在读取/);assert.equal($('#workspaceBody').scrollTop,120);
+  await goto('contacts');retry.resolve({ok:true,json:async()=>[{id:'late',filename:'late.mp3'}]});await tick();assert.ok($('#contactForm'));assert.equal($('#historyList'),null);
+});
+
+test('a report error retries the known id and details remain synchronous through pause and print',async t=>{
+  const retry=pending();let calls=0;const local=[];
+  const {$,goto,w}=setup(t,{fetch:()=>++calls===1?Promise.reject(new TypeError('offline')):retry.promise,animate(target,params){
+    if('feedbackProgress' in target){const job={params,cancel(){}};local.push(job);return job;}params.onComplete?.();return {cancel(){},pause(){},resume(){}};
+  }});await goto('report/known');const heading=$('.page-heading'),host=$('#reportLoadState');$('#retryReport').click();assert.strictEqual($('.page-heading'),heading);assert.strictEqual($('#reportLoadState'),host);assert.equal(host.getAttribute('aria-busy'),'true');
+  retry.resolve({ok:true,json:async()=>({id:'known',filename:'saved.mp3',modules:{audio:{status:'completed',score:0,threshold:.5}}})});await tick();
+  const details=$('.report-details');details.open=true;await tick();assert.equal($('.raw-report').dataset.feedbackKind,'change');assert.ok($('.raw-report').textContent.includes('known'));
+  details.open=false;await tick();assert.equal($('.raw-report').hasAttribute('data-feedback-kind'),false);
+  w.dispatchEvent(new w.Event('beforeprint'));assert.equal(details.open,true);assert.equal(w.document.documentElement.dataset.feedbackMotion,'paused');w.dispatchEvent(new w.Event('afterprint'));assert.equal(details.open,false);
+  $('#motionButton').click();details.open=true;await tick();assert.equal($('.raw-report').hasAttribute('data-feedback-kind'),false);assert.ok(local.length>0);
+});
+
+test('portal loops wait for startup and stay covered through modal and workspace return',async t=>{
+  const ready=pending(),calls=[],pendingClose=[];let hold=false;
+  const {$,goto,w}=setup(t,{startReady:ready.promise,portalMotion:{setReady(value){calls.push(['ready',value]);},setPaused(value){calls.push(['paused',value]);},setCovered(value){calls.push(['covered',value]);},destroy(){calls.push(['destroy']);}},animate(target,params){
+    if(hold&&[90,460].includes(params.duration)){pendingClose.push(params);return {cancel(){}};}params.onComplete?.();return {cancel(){},pause(){},resume(){}};
+  }});assert.equal(calls.some(([kind])=>kind==='ready'),false);ready.resolve();await tick();assert.ok(calls.some(([kind,value])=>kind==='ready'&&value));
+  const covered=()=>calls.findLast(([kind])=>kind==='covered')[1];$('#settings').click();assert.equal(covered(),true);$('#closeModal').click();assert.equal(covered(),false);
+  await goto('check');assert.equal(covered(),true);$('#settings').click();$('#closeModal').click();assert.equal(covered(),true);
+  hold=true;$('#closeWorkspace').click();await tick();assert.equal(w.location.hash,'#home');assert.equal(covered(),true);
+  pendingClose.shift().onComplete();assert.equal(covered(),true);pendingClose.shift().onComplete();assert.equal(covered(),false);
+  $('.node-check').dispatchEvent(new w.Event('pointermove'));assert.equal(covered(),false,'hover never pauses the independent loop');
 });
 
 test('quiz answers update in place and repeated clicks do not increase the score',async t=>{

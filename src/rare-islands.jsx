@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { MotionConfig } from 'motion/react';
@@ -7,8 +7,8 @@ import GridReveal from './rare-ui/grid-reveal';
 import AiStatus from './rare-ui/ai-status';
 import AnimatedCounter from './rare-ui/animated-counter';
 import Faq from './rare-ui/faq';
-import MatrixOrb from './rare-ui/matrix-orb';
 import { GooeyNav } from './rare-ui/gooey-nav';
+import { UploadCopy, UploadPulse } from './rare-ui/upload-feedback';
 import { MotionPausedContext } from './rare-ui/motion-settings';
 import { paths } from './icons';
 import './rare-ui/utilities.css';
@@ -35,23 +35,27 @@ function ImagePreview({ url, name, onError }) {
 function UploadIsland({ file, url, kind = 'image', open = false, hovered, paused, disabled, validating, label, hint, detail, onChoose, onRemove, onPreviewError }) {
   const [pointerHover, setPointerHover] = useState(false);
   const [focused, setFocused] = useState(false);
+  const triggerRef = useRef(null);
+  const previousFile = useRef(!!file);
+  const removedFile = previousFile.current && !file;
+  useLayoutEffect(() => { previousFile.current = !!file; }, [file]);
   const hovering = !disabled && !!(hovered ?? (pointerHover || focused));
   const choose = event => { event.stopPropagation(); if (!disabled) onChoose?.(); };
   return <MotionBoundary paused={paused}>
     <div className={`qi-upload${file ? ' qi-upload-selected' : ''}`} data-open={open || undefined} data-paused={paused || undefined} aria-busy={!!validating}>
       <div className="qi-folder-region">
         <span className="qi-upload-marker" aria-hidden="true">{file ? '02 / MATERIAL READY' : '01 / DROP MATERIAL'}</span>
-        <button type="button" data-upload-action="choose" className="qi-folder-trigger" disabled={disabled}
+        <button ref={triggerRef} type="button" data-upload-action="choose" className="qi-folder-trigger" disabled={disabled}
           aria-label={file ? `替换${TYPE_LABELS[kind] || '文件'}` : `选择${TYPE_LABELS[kind] || '文件'}`}
           onClick={choose}
           onMouseEnter={() => setPointerHover(true)} onMouseLeave={() => setPointerHover(false)}
           onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}>
-          <span className="qi-folder-stage" aria-hidden="true"><Folder size="sm" color="black" open={!!open} hovered={hovering} /></span>
-          <span className="qi-upload-title">{file ? '替换文件' : label ? `选择${label}` : '放入一份待核实的材料'}<span aria-hidden="true"> ↗</span></span>
-          <span className="qi-upload-hint">{file ? '重新选择，或拖入新文件' : hint || '拖入这里，或点击打开文件夹'}</span>
+          <span className="qi-folder-stage" aria-hidden="true"><UploadPulse revision={kind} className="qi-folder-pulse"><Folder size="sm" color="black" open={!!open} hovered={hovering} /></UploadPulse></span>
+          <span className="qi-upload-title"><UploadCopy text={file ? '替换文件' : label ? `选择${label}` : '放入一份待核实的材料'} /><span className="qi-upload-arrow" aria-hidden="true"> ↗</span></span>
+          <UploadCopy className="qi-upload-hint" text={file ? '重新选择，或拖入新文件' : hint || '拖入这里，或点击打开文件夹'} />
         </button>
       </div>
-      {file ? <div className="qi-selected-file">
+      {file ? <UploadPulse as="div" className="qi-selected-file" variant="preview" appear revision={`${kind}:${url || file.name}`}>
         <div className="qi-file-heading"><span className="qi-file-type">{TYPE_LABELS[kind] || '文件'} / {formatSize(file.size)}</span><span className="qi-file-indicator" aria-hidden="true" /></div>
         <strong className="qi-file-name" title={file.name}>{file.name}</strong>
         <div className="qi-media-preview" onClick={event => event.stopPropagation()}>
@@ -60,10 +64,10 @@ function UploadIsland({ file, url, kind = 'image', open = false, hovered, paused
           {url && kind === 'video' && <video key={url} src={url} controls preload="metadata" playsInline aria-label="视频预览" />}
         </div>
         <div className="qi-file-footer">
-          <span>{validating ? '正在检查文件…' : detail || '已就绪，可开始核验'}</span>
-          <button type="button" data-upload-action="remove" disabled={disabled} onClick={event => { event.stopPropagation(); onRemove?.(); }}>移除 <span aria-hidden="true">×</span></button>
+          <UploadCopy text={validating ? '正在检查文件…' : detail || '已就绪，可开始核验'} />
+          <button type="button" data-upload-action="remove" disabled={disabled} onClick={event => { event.stopPropagation(); onRemove?.(); triggerRef.current?.focus({ preventScroll: true }); }}>移除 <span aria-hidden="true">×</span></button>
         </div>
-      </div> : <div className="qi-upload-capabilities"><span>本地预览</span><span>单份材料</span><span>{detail || '拖拽即可'}</span></div>}
+      </UploadPulse> : <UploadPulse as="div" className="qi-upload-capabilities" variant="preview" appear={removedFile} revision="empty"><span>本地预览</span><span>单份材料</span><span><UploadCopy text={detail || '拖拽即可'} /></span></UploadPulse>}
     </div>
   </MotionBoundary>;
 }
@@ -117,11 +121,6 @@ function MaterialTabsIsland({ value = 'audio', disabled = false, paused, onChang
     <GooeyNav items={MATERIAL_ITEMS} value={index < 0 ? 0 : index} disabled={!!disabled}
       onChange={next => onChange?.(MATERIAL_KINDS[next])} />
   </MotionBoundary>;
-}
-
-function MatrixFieldIsland({ paused, activePortal = null }) {
-  const portal = ['check', 'contacts', 'practice', 'history'].includes(activePortal) ? activePortal : null;
-  return <MotionBoundary paused={paused}><MatrixOrb activePortal={portal} /></MotionBoundary>;
 }
 
 /** Owns only host descendants. Call destroy BEFORE replacing/removing host markup. */
@@ -183,24 +182,6 @@ export function mountMaterialTabs(host, props = {}) {
       island.destroy();
       host.classList.remove('qi-material-tabs-host');
       restore();
-    },
-  };
-}
-
-export function mountMatrixField(host, props = {}) {
-  const hidden = host.getAttribute('aria-hidden');
-  host.setAttribute('aria-hidden', 'true');
-  host.classList.add('qi-matrix-host');
-  const island = mountIsland(host, MatrixFieldIsland, props);
-  let destroyed = false;
-  return {
-    update: next => island.update(next),
-    destroy() {
-      if (destroyed) return;
-      destroyed = true;
-      island.destroy();
-      host.classList.remove('qi-matrix-host');
-      if (hidden === null) host.removeAttribute('aria-hidden'); else host.setAttribute('aria-hidden', hidden);
     },
   };
 }
