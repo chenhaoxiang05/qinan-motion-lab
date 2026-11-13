@@ -58,73 +58,88 @@ export const liquidFragment = `
     float aspect = uResolution.x / uResolution.y;
     vec2 uv = vUv;
     vec4 flow = texture2D(uFlow, uv);
-    vec2 p = (uv - .5) * vec2(aspect, 1.) * 2.8;
-    p += (flow.rg - .5) * 1.2 + uFocus * .13;
-    float t = uTime * .105;
-    vec2 warp = vec2(noise(p * .65 + vec2(t, -t * .7)),
-                     noise(p * .7 + vec2(-t * .6, t + 5.3)));
-    p += (warp - .5) * 1.2;
-    float wave = sin(p.x * 1.8 + sin(p.y * 1.45 + t) * 1.2 - t)
-               + cos(p.y * 2.1 - p.x * .42 + t * .8) * .67;
-    float contour = wave + p.y * .32;
-    float folds = abs(sin(contour * 2.1));
-    float ribbon = pow(1. - folds, 9.);
-    float silk = pow(1. - folds, 2.) * .16;
-    float highlight = pow(1. - folds, 46.);
+    vec2 q = (uv - uCenter) * vec2(aspect, 1.);
+    vec2 p = q * 3.4;
+    p += (flow.rg - .5) * 1.1 + uFocus * .08;
+    float t = uTime * .075;
+    p += vec2(noise(p * .7 + vec2(t, -t)), noise(p * .6 - vec2(t, t + 5.3))) * .28;
+    // Local refractive contours wrap the sculpture, leaving the headline quiet.
+    float lens = length(p * vec2(.78, 1.1)) + sin(p.y * 2. + t) * .12;
+    float band = abs(sin(lens * 5.2 - p.x * .7 + t));
+    float broad = pow(1. - band, 4.);
+    float edge = pow(1. - band, 42.);
+    float sceneMask = exp(-dot(q, q) * 4.5);
+    float innerQuiet = smoothstep(.12, .32, length(q));
+    float ribbon = (broad * .017 + edge * .052) * sceneMask * innerQuiet;
     vec2 pulseDelta = (uv - uPulseOrigin) * vec2(aspect, 1.);
-    float pulseRadius = max(0., uPulseAge) * .7;
-    float pulse = exp(-pow((length(pulseDelta) - pulseRadius) * 24., 2.))
-                * exp(-max(0., uPulseAge) * 2.) * step(0., uPulseAge);
-    float centralQuiet = 1. - .65 * exp(-dot((uv-uCenter)*vec2(aspect,1.),
-                                           (uv-uCenter)*vec2(aspect,1.)) * 19.);
-    float edge = 1. - smoothstep(.35, 1.15, length((uv-.5)*vec2(aspect*.65,1.)));
-    float light = (ribbon * .037 + silk * .025 + highlight * .028) * centralQuiet * edge;
-    vec3 color = vec3(.0026, .0032, .0045);
-    color += vec3(.87, .94, 1.) * light;
-    color += vec3(.66, .85, .48) * pulse * .04;
-    color += vec3(.8, .88, 1.) * flow.b * .018;
-    float grain = (hash(gl_FragCoord.xy + floor(uTime * 12.)) - .5) * .0011;
-    color = max(vec3(0.), color + grain) * mix(1., .4, uDim);
+    float pulse = exp(-pow((length(pulseDelta) - max(0., uPulseAge) * .48) * 38., 2.))
+                * exp(-max(0., uPulseAge) * 2.5) * step(0., uPulseAge);
+    vec2 grid = fract((gl_FragCoord.xy + (flow.rg-.5) * 75.) / 14.) - .5;
+    float dotField = (1. - smoothstep(.045, .095, length(grid))) * sceneMask;
+    vec3 color = vec3(.0021, .0026, .0034);
+    color += vec3(.86, .93, 1.) * ribbon;
+    color += vec3(.65, .86, .30) * pulse * .045;
+    color += vec3(.46, .59, .67) * dotField * (.009 + flow.b * .05);
+    color += vec3(.72, .86, 1.) * flow.b * .018 * sceneMask;
+    float grain = (hash(gl_FragCoord.xy) - .5) * .00065;
+    color = max(vec3(0.), color + grain) * mix(1., .36, uDim);
     gl_FragColor = vec4(color, 1.);
     #include <colorspace_fragment>
   }
 `;
 
+/** The same three-stage clock drives opacity on CPU and migration on GPU. */
+export function morphVisualState(progress) {
+  const p = Math.max(0, Math.min(1, progress));
+  const smooth = value => { const t = Math.max(0, Math.min(1, value)); return t * t * (3 - 2 * t); };
+  const fade = smooth(p / (200 / 1500));
+  const travel = p < 1100 / 1500
+    ? .92 * smooth((p - 200 / 1500) / (900 / 1500))
+    : .92 + .08 * (1 - Math.pow(1 - (p - 1100 / 1500) / (400 / 1500), 3));
+  return { solidOpacity: 1 - fade, voxelOpacity: fade, travel };
+}
+
 /** Instancing morph math lives in the GPU, not thousands of per-frame JS matrices. */
 export function configureVoxelMaterial(material, uniforms) {
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, uniforms);
-    const declarations = `
+    shader.vertexShader = `
       uniform float uProgress;
       attribute vec3 aStart;
       attribute vec3 aEnd;
       attribute vec3 aArc;
       attribute float aSeed;
+      float migration(float p) {
+        float travel = p < .7333333333
+          ? .92 * smoothstep(.1333333333, .7333333333, p)
+          : .92 + .08 * (1. - pow(1. - clamp((p - .7333333333) / .2666666667, 0., 1.), 3.));
+        return clamp(travel, 0., 1.);
+      }
       mat3 voxelRotation(float angle) {
         float c=cos(angle), s=sin(angle);
         return mat3(c,0.,-s, 0.,1.,0., s,0.,c);
       }
-    `;
-    shader.vertexShader = declarations + shader.vertexShader;
+    ` + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', `
-      float voxelT = clamp((uProgress - aSeed * .09) / .91, 0., 1.);
+      float voxelT = migration(uProgress);
       float disturbance = sin(voxelT * 3.14159265359);
-      mat3 voxelTurn = voxelRotation(disturbance * (aSeed * 9. + 1.));
+      mat3 voxelTurn = voxelRotation(disturbance * (.35 + aSeed * .7));
       vec3 objectNormal = voxelTurn * vec3(normal);
       #ifdef USE_TANGENT
         vec3 objectTangent = voxelTurn * vec3(tangent.xyz);
       #endif
     `);
+    // Three's color chunk precedes its normal chunk; never reference voxelT here.
     shader.vertexShader = shader.vertexShader.replace('#include <color_vertex>', `
       #include <color_vertex>
       #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
-        vColor.rgb = mix(vColor.rgb, vec3(.82, .88, .9), smoothstep(.1, .8, clamp((uProgress - aSeed * .09) / .91, 0., 1.)));
+        vColor.rgb = mix(vColor.rgb, vec3(.80, .87, .90), smoothstep(.1, .8, migration(uProgress)));
       #endif
     `);
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `
-      vec3 transformed = voxelTurn * vec3(position) * mix(1.25, .97, voxelT);
+      vec3 transformed = voxelTurn * vec3(position);
       transformed += mix(aStart, aEnd, voxelT) + aArc * disturbance;
     `);
   };
-  material.customProgramCacheKey = () => 'qinan-chrome-voxel-v4';
+  material.customProgramCacheKey = () => 'qinan-spaced-voxel-v5';
 }

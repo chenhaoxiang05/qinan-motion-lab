@@ -32,7 +32,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   const body = $('#workspaceBody'), workspace = $('#workspace'), modal = $('#modal');
   $$('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
   $('#closeWorkspace').innerHTML='返回主页 '+icon('close');
-  $('.mini-signal').innerHTML=Array.from({length:10},(_,i)=>`<i style="height:${7+Math.sin(i*1.8)**2*15}px;animation-delay:${-i*.15}s"></i>`).join('');
+  if($('.mini-signal'))$('.mini-signal').innerHTML=Array.from({length:10},(_,i)=>`<i style="height:${7+Math.sin(i*1.8)**2*15}px;animation-delay:${-i*.15}s"></i>`).join('');
   const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let paused = getStored('qinan-motion-paused','false') === 'true' || mediaQuery.matches;
   let realMode = getStored('qinan-real-mode','false') === 'true';
@@ -42,15 +42,16 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   let page='home', routeRevision=0, viewController=null, healthController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
-  let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null;
+  let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null, feedbackAnimation=null, windowReady=false, modalAnimation=null, modalRevision=0;
   const activeRequests=new Set(), ambientAnimations=[], entranceAnimations=[], pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
   const transitions=createWorkspaceTransitions({
     dialog:workspace,surface:$('.workspace-surface'),backdrop:$('#workspaceBackdrop'),portals:$$('.portal-node'),
     animate,createLayout,motionEnabled,
-    onBusy(){pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(true);},
+    onBusy(){windowReady=false;finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(true);},
     onHome(){visual.focus(false);resumeAmbient();},
-    onClosed(){disposeView();body.innerHTML='';},
+    onClosed(){windowReady=false;disposeView();body.innerHTML='';},
+    onOpened(){windowReady=true;},
   });
   const e=escapeHTML;
   const heading=(label,title,desc)=>`<div class="page-heading"><span class="eyebrow">${label}</span><h1>${title}</h1><p>${desc}</p></div>`;
@@ -68,17 +69,35 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     el.classList.add('visible');clearTimeout(toastTimer);
     toastTimer=setTimeout(()=>{el.classList.remove('visible');if(typeof el.hidePopover==='function')el.hidePopover();},3800);
   }
+  function normalizeModal(){modal.style.opacity='1';modal.style.transform='none';}
+  function settleModal(){
+    modalRevision++;const animation=modalAnimation;modalAnimation=null;
+    try{animation?.cancel?.();}catch{/* The visible terminal state is independent of the engine. */}
+    utils.remove(modal);normalizeModal();
+  }
   function openModal(html){
     const alreadyOpen=modal.open;
+    settleModal();
     utils.remove($('#modalBody').querySelectorAll('*'));
     $('#modalBody').innerHTML=html;
-    if(!alreadyOpen) {
+    if(!alreadyOpen){
       modal.showModal();
-      if(motionEnabled())animate(modal,{opacity:[0,1],scale:[.96,1],y:[15,0],duration:360,ease:'outExpo'});
+      if(motionEnabled()){
+        const revision=modalRevision;let completed=false;
+        const finish=()=>{if(revision!==modalRevision)return;completed=true;modalAnimation=null;normalizeModal();};
+        try{
+          const animation=animate(modal,{opacity:[0,1],scale:[.96,1],y:[15,0],duration:360,ease:'outExpo',onComplete:finish});
+          if(!completed)modalAnimation=animation;
+        }catch{settleModal();}
+      }
     }
   }
-  function closeModal(){utils.remove(modal);modal.close();}
+  function closeModal(){settleModal();if(modal.open)modal.close();}
+  const cancelModal=event=>{event.preventDefault();closeModal();};
+  const modalVisibility=()=>{if(document.hidden)settleModal();};
   $('#closeModal').onclick=closeModal;
+  modal.addEventListener('cancel',cancelModal);
+  document.addEventListener('visibilitychange',modalVisibility);
   modal.addEventListener('click',ev=>{if(ev.target===modal){const r=modal.getBoundingClientRect();if(ev.clientX<r.left||ev.clientX>r.right||ev.clientY<r.top||ev.clientY>r.bottom)closeModal();}});
 
   async function request(url,options={},signal=null,timeout=25000){
@@ -113,7 +132,8 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     if(location.hash.slice(1)===next)route();else location.hash=next;
   }
   function finishQuizExit(){const exit=quizExit;if(exit){exit.animation?.complete?.();exit.finish();}}
-  function disposeQuizLayout(){finishQuizExit();quizLayout?.revert();quizLayout=null;}
+  function finishFeedback(){const animation=feedbackAnimation;feedbackAnimation=null;animation?.cancel?.();const feedback=$('#feedback');if(feedback){feedback.style.opacity='1';feedback.style.transform='none';}}
+  function disposeQuizLayout(){finishFeedback();finishQuizExit();quizLayout?.revert();quizLayout=null;}
   function disposeView(){disposeQuizLayout();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
     const raw=location.hash.slice(1)||'home';
@@ -124,7 +144,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     // Abort old requests immediately, but retain the visible DOM until its close
     // transition finishes. Reverting a quiz layout before fade-out caused jumps.
     viewController?.abort();page=target;
-    transitions.navigate({key:target,portal:lastPortal,render(){
+    transitions.navigate({key:target,portal:target==='report'?lastPortal:$(`[data-portal="${target}"]`),render(){
       if(revision!==routeRevision)return;
       disposeView();
       $('#workspaceTitle').textContent=pages[target][0];$('#sectionNumber').textContent=pages[target][1];
@@ -145,7 +165,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   function renderCheck(){
     if(activeTask){renderProcessing();return;}
     const recoverable=realMode&&getStored('qinan-active-job','', 'sessionStorage');
-    body.innerHTML=heading('01 / A CLEARER VIEW','把疑问交给亲安。','一段声音，一张照片，一条消息。先核实，再放心。')+
+    body.innerHTML=heading('01 / 材料核验','把疑问交给亲安。','一段声音，一张照片，一条消息。先核实，再放心。')+
       `${recoverable?`<div class="notice mode-notice">上次的任务仍可继续查看，不需要重复上传。<button id="resumeTask" class="text-button">恢复查看 ↗</button></div>`:''}`+
       `<div class="upload-layout"><section class="surface upload-card"><div class="type-tabs" role="tablist" aria-label="选择材料类型"><span class="tab-marker" aria-hidden="true"></span>${Object.entries(fileTypes).map(([key,t])=>`<button class="type-tab" id="type-${key}" role="tab" aria-controls="uploadPanel" aria-selected="${type===key}" tabindex="${type===key?0:-1}" data-type="${key}">${icon(t.icon)}${t.label}</button>`).join('')}</div><div id="uploadPanel" role="tabpanel" aria-labelledby="type-${type}"><div id="dropzone" class="dropzone"></div><p id="fileError" class="inline-error" role="alert"></p><div class="upload-meta"><span>${icon('lock')}${realMode?'原始材料处理后删除':'本地演示 · 文件不会上传'}</span><button id="analyzeButton" class="primary" disabled>${realMode?'开始核验':'体验核验'} ${icon('arrow')}</button></div></div></section><aside class="safety-card"><div class="safety-top">A GENTLE REMINDER ${icon('heart')}</div><h2>真正的关心，<br>经得起一次<span>确认。</span></h2><p>遇到借钱、转账或索要验证码，<br>先停一停，用熟悉的号码联系家人。</p><button id="familyLink" class="family-link">${icon('phone')} 联系我的家人 ${icon('arrow')}</button></aside></div><div class="hint-line"><span>${realMode?'检测结果提供线索，不能证明身份。':'当前为交互演示，报告会清楚标注为虚构示例。'}</span><button id="sampleButton" class="text-button">没有材料？试试示例 ${icon('arrow')}</button></div><div class="steps-strip"><span><b>01 /</b> 选择材料</span><i></i><span><b>02 /</b> 看懂线索</span><i></i><span><b>03 /</b> 独立核实</span></div>`;
     $('#familyLink').onclick=()=>go('contacts');$('#sampleButton').onclick=demoModal;$('#analyzeButton').onclick=analyze;
@@ -234,7 +254,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   }
   function renderProcessing(){
     if(!activeTask)return;
-    body.innerHTML=heading('LOOKING A LITTLE CLOSER','先别着急，我们一起看看。','核验提供线索，身份仍需使用熟悉的号码再次确认。')+
+    body.innerHTML=heading('正在核验','先别着急，我们一起看看。','核验提供线索，身份仍需使用熟悉的号码再次确认。')+
       `<section class="surface empty-state"><div class="loading-scan">${icon('scan')}</div><span class="report-badge">${activeTask.demo?'演示流程 · 非真实检测':'实际检测任务'}</span><h3 id="progressTitle">${e(activeTask.message)}</h3><p>${activeTask.demo?'所选文件留在浏览器中，下方将展示虚构的交互示例。':'材料正在由后端处理，离开这个窗口不会取消服务器检测。'}</p><div style="max-width:230px;margin:auto">${wave()}</div><button id="leaveTask" class="text-button">先回安心空间 ↗</button></section>`;
     $('#leaveTask').onclick=()=>go('home');
   }
@@ -279,8 +299,8 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   }
 
   function renderContacts(){
-    body.innerHTML=heading('02 / YOUR CIRCLE OF TRUST','熟悉的声音，才是安心的答案。','提前保存家人的真实号码。遇到紧急请求，先打一个电话。')+
-      `<div class="contact-layout"><section class="surface"><h2>我的家人 <span id="contactCount" style="color:#799667;font-size:11px">/ ${contacts.length}</span></h2><div id="contactList"></div></section><section class="surface"><span class="decor-star">✳</span><h2>把最重要的人，放在这里。</h2><p class="mode-explanation">请与家人事先确认号码，不要使用可疑消息中提供的新号码。</p><form id="contactForm"><div class="form-field"><label for="contactName">怎么称呼 TA</label><input id="contactName" placeholder="例如：女儿、小陈" required maxlength="30" autocomplete="off"></div><div class="form-field"><label for="contactPhone">熟悉的电话号码</label><input id="contactPhone" placeholder="请输入已确认的号码" type="tel" required maxlength="25" autocomplete="tel"></div><p id="contactError" class="inline-error" role="alert"></p><button class="primary" type="submit">保存家人号码 ${icon('heart')}</button></form></section></div><div class="notice">${icon('lock')}<span>联系人仅保存在当前浏览器。拨号按钮会打开设备电话程序，手机使用更方便。</span></div>`;
+    body.innerHTML=heading('02 / 联系家人','熟悉的声音，才是安心的答案。','提前保存家人的真实号码。遇到紧急请求，先打一个电话。')+
+      `<div class="contact-layout"><section class="surface"><h2>我的家人 <span id="contactCount">/ ${contacts.length}</span></h2><div id="contactList"></div></section><section class="surface"><span class="decor-star">✳</span><h2>把最重要的人，放在这里。</h2><p class="mode-explanation">请与家人事先确认号码，不要使用可疑消息中提供的新号码。</p><form id="contactForm"><div class="form-field"><label for="contactName">怎么称呼 TA</label><input id="contactName" placeholder="例如：女儿、小陈" required maxlength="30" autocomplete="off"></div><div class="form-field"><label for="contactPhone">熟悉的电话号码</label><input id="contactPhone" placeholder="请输入已确认的号码" type="tel" required maxlength="25" autocomplete="tel"></div><p id="contactError" class="inline-error" role="alert"></p><button class="primary" type="submit">保存家人号码 ${icon('heart')}</button></form></section></div><div class="notice">${icon('lock')}<span>联系人仅保存在当前浏览器。拨号按钮会打开设备电话程序，手机使用更方便。</span></div>`;
     renderContactList();
     $('#contactForm').onsubmit=ev=>{
       ev.preventDefault();const name=$('#contactName').value.trim(),phone=$('#contactPhone').value.trim();
@@ -307,15 +327,15 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   function renderQuiz(){
     disposeQuizLayout();
     if(currentQuiz>=quiz.length){
-      body.innerHTML=heading('03 / A LITTLE PRACTICE. A STRONGER YOU.','多练习一次，多一份从容。','你已完成本轮虚构情景练习。')+`<section class="surface question-card"><div class="empty-state">${icon('spark')}<h3>本轮答对 ${correctCount} / ${quiz.length} 题</h3><p>${correctCount===quiz.length?'每一次认真核实，都是对家人的守护。':'记住这些提醒，下次就能多一份警觉。'}</p></div>${mistakes.map(q=>`<div class="question-feedback"><b>${q.title}</b><br>${q.why}</div>`).join('')}<button class="primary" id="restartQuiz">再练一轮 ${icon('refresh')}</button></section>`;
+      body.innerHTML=heading('03 / 练习完成','多练习一次，多一份从容。','你已完成本轮虚构情景练习。')+`<section class="surface question-card"><div class="empty-state">${icon('spark')}<h3>本轮答对 ${correctCount} / ${quiz.length} 题</h3><p>${correctCount===quiz.length?'每一次认真核实，都是对家人的守护。':'记住这些提醒，下次就能多一份警觉。'}</p></div>${mistakes.map(q=>`<div class="question-feedback"><b>${q.title}</b><br>${q.why}</div>`).join('')}<button class="primary" id="restartQuiz">再练一轮 ${icon('refresh')}</button></section>`;
       $('#restartQuiz').onclick=()=>{currentQuiz=0;answer=null;correctCount=0;mistakes=[];renderQuiz();};return;
     }
     const q=quiz[currentQuiz];
-    body.innerHTML=heading('03 / SPOT THE SIGNS. KEEP YOUR PEACE.','练一点识别力。','不必成为专家。先停一停，再核实，就是重要的一步。')+
+    body.innerHTML=heading('03 / 情景练习','练一点识别力。','不必成为专家。先停一停，再核实，就是重要的一步。')+
       `<div class="quiz-progress" aria-label="待完成题目">${quiz.map((_,i)=>i>=currentQuiz+(answer!==null?1:0)?`<span class="quiz-tile" data-question="${i}">${String(i+1).padStart(2,'0')}</span>`:'').join('')}</div><section class="surface question-card"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span id="scoreCount">已答对 ${correctCount} 题</span></div><div class="progress-track"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2>${q.title}</h2><div class="question-text">${q.text}</div><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((a,i)=>`<button class="answer" data-answer="${i}"><b>${String.fromCharCode(65+i)}</b>${a}</button>`).join('')}</div><div id="feedback"></div></section>`;
     quizLayout=createLayout?.($('.quiz-progress'),{duration:250,ease:'outQuad',leaveTo:{transform:'translateY(-100px) scale(.25)',opacity:0,duration:350,ease:'out(3)'}});
     $$('[data-answer]').forEach(button=>button.onclick=()=>{if(answer!==null)return;answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);updateAnswer(q);removeProgressTile();});
-    if(answer!==null)updateAnswer(q);
+    if(answer!==null)updateAnswer(q,false);
   }
   function removeProgressTile(){
     const tile=$(`[data-question="${currentQuiz}"]`);if(!tile)return;
@@ -329,11 +349,14 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     };
     if(motionEnabled()&&layout){
       const exit={tile,finish,animation:null};quizExit=exit;
-      exit.animation=layout.update(()=>tile.classList.add('is-hidden'),{onComplete:finish});
-      if(exit.animation?.completed)finish();
+      try{
+        exit.animation=layout.update(()=>tile.classList.add('is-hidden'),{onComplete:finish});
+        if(exit.animation?.completed)finish();
+      }catch{finish();}
     }else finish();
   }
-  function updateAnswer(q){
+  function updateAnswer(q,shouldAnimate=true){
+    finishFeedback();
     $$('[data-answer]').forEach(button=>{
       const i=+button.dataset.answer;button.disabled=true;
       button.classList.toggle('correct',i===q.correct);button.classList.toggle('wrong',i===answer&&i!==q.correct);
@@ -341,14 +364,17 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     });
     $('#scoreCount').textContent=`已答对 ${correctCount} 题`;
     $('#feedback').innerHTML=`<div class="question-feedback" role="status"><b>${answer===q.correct?'✓ 这一步，让安心更近了。':'✕ 再多核实一步，会更稳妥。'}</b><br>${q.why}</div><button id="nextQuestion" class="primary">${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}</button>`;
-    if(motionEnabled())animate($('#feedback'),{y:[10,0],opacity:[0,1],duration:300,ease:'outQuad'});
+    if(shouldAnimate&&windowReady&&motionEnabled()){
+      const feedback=$('#feedback');
+      feedbackAnimation=animate(feedback,{y:[10,0],opacity:[0,1],duration:300,ease:'outQuad',onComplete:()=>{feedback.style.opacity='1';feedback.style.transform='none';feedbackAnimation=null;}});
+    }
     $('#nextQuestion').onclick=()=>{currentQuiz++;answer=null;renderQuiz();body.scrollTop=0;};
   }
 
-  function updateHistoryHint(){$('#historyHint').textContent=records.length?`${records.length} 次演示，记录在这里`:'YOUR MOMENTS OF CLARITY';}
+  function updateHistoryHint(){$('#historyHint').textContent=records.length?`${records.length} 次演示，记录在这里`:'每一步，都算数';}
   function dateText(value){const date=new Date(value);return Number.isNaN(date.getTime())?'时间未提供':date.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'});}
   async function renderHistory(revision=routeRevision){
-    body.innerHTML=heading('04 / YOUR MOMENTS OF CLARITY','每一次核实，都有迹可循。',realMode?'查看实际核验记录。':'记录当前浏览器中的演示报告。演示与实际检测分开保存。')+`<section class="surface" id="historyList"><div class="empty-state"><p>正在读取记录…</p></div></section>`;
+    body.innerHTML=heading('04 / 核验记录','每一次核实，都有迹可循。',realMode?'查看实际核验记录。':'记录当前浏览器中的演示报告。演示与实际检测分开保存。')+`<section class="surface" id="historyList"><div class="empty-state"><p>正在读取记录…</p></div></section>`;
     const controller=viewController;let items=records;
     if(realMode){
       try{const data=await request('/api/cases',{},controller.signal);items=Array.isArray(data)?data:(data.items||data.cases||[]);if(!Array.isArray(items))throw new Error('返回的记录格式不正确。');}
@@ -365,15 +391,15 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     });
   }
   async function renderReportFromId(id,revision){
-    body.innerHTML=heading('YOUR VERIFICATION RECORD','正在打开核验记录…','');
-    if(!realMode||!id){body.innerHTML=heading('YOUR VERIFICATION RECORD','这份记录暂时不在这里。','演示记录仅保存在创建它的浏览器中。')+`<button id="backToHistory" class="primary">查看已有记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');return;}
+    body.innerHTML=heading('核验报告','正在打开核验记录…','');
+    if(!realMode||!id){body.innerHTML=heading('核验报告','这份记录暂时不在这里。','演示记录仅保存在创建它的浏览器中。')+`<button id="backToHistory" class="primary">查看已有记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');return;}
     const controller=viewController;
     try{const data=await request(`/api/cases/${encodeURIComponent(id)}`,{},controller.signal);if(controller.signal.aborted||revision!==routeRevision)return;currentReport={...data,demo:false};renderReport();}
-    catch(error){if(controller.signal.aborted||revision!==routeRevision)return;body.innerHTML=heading('YOUR VERIFICATION RECORD','暂时无法读取这份报告。',e(error.message))+`<button id="backToHistory" class="primary">返回核验记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');}
+    catch(error){if(controller.signal.aborted||revision!==routeRevision)return;body.innerHTML=heading('核验报告','暂时无法读取这份报告。',e(error.message))+`<button id="backToHistory" class="primary">返回核验记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');}
   }
   function renderReport(){
     const report=currentReport,demo=!!report.demo;
-    body.innerHTML=heading('A CLEARER VIEW. A CALMER MIND.','看见线索，记得再次确认。',e(report.name||report.filename||'核验报告'))+
+    body.innerHTML=heading('核验报告','看见线索，记得再次确认。',e(report.name||report.filename||'核验报告'))+
       `<div class="notice mode-notice">${icon(demo?'spark':'shield')}<span>${demo?'交互演示报告 · 以下是虚构示例，不是对所选文件的真实检测。':'实际后端报告 · 检测提供线索，身份仍需独立核实。'}</span></div><div class="result-banner">${icon('heart')}<div><h2>${demo?'先暂停转账，用熟悉的号码联系本人。':'结合实际线索，再向本人核实。'}</h2><p>${demo?'涉及资金或验证码时，独立联系本人，比熟悉的声音和画面更可靠。':'各模块独立提供线索。无法判断的模块不代表安全或危险。'}</p></div></div>`+
       (demo?`<div class="result-modules"><section class="surface">${icon('sound')}<h3>声音检查 · 演示</h3>${wave()}<p>熟悉的声音也可能被克隆。波形为装饰性动画，不是文件的真实波形。</p></section><section class="surface">${icon('chat')}<h3>请求核实 · 虚构情景</h3><p class="quote-lines">“我换号码了”<br>“急用一笔钱”<br>“不方便打电话”</p><p>这些请求值得通过独立渠道核实。</p></section><section class="surface">${icon('heart')}<h3>你的下一步</h3><p class="quote-lines">01 / 暂停转账<br>02 / 不提供验证码<br>03 / 联系本人</p><p>一次确认，胜过匆忙的相信。</p></section></div>`:renderActualModules(report))+
       `<div class="result-actions"><button id="reportContacts" class="primary">联系我的家人 ${icon('phone')}</button><button id="exportReport" class="secondary">下载${demo?'演示':'完整'}记录</button><button id="printReport" class="secondary">打印报告</button><button id="anotherCheck" class="text-button">再核验一份 ${icon('arrow')}</button></div>`+
@@ -410,7 +436,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     document.body.classList.toggle('motion-off',paused||mediaQuery.matches);
     $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
     $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
-    if(!motionEnabled()){pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
+    if(!motionEnabled()){settleModal();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
   }
   function toggleMotion(){paused=!paused;setStored('qinan-motion-paused',String(paused));syncMotion();}
   const motionChange=()=>{paused=mediaQuery.matches||getStored('qinan-motion-paused','false')==='true';syncMotion();};mediaQuery.addEventListener('change',motionChange);
@@ -427,11 +453,11 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     if(motionEnabled()){
       entranceAnimations.push(animate('.intro-copy',{opacity:[0,1],y:[18,0],duration:1050,ease:'outExpo'}));
       $$('.portal-node').forEach((node,i)=>{
-        entranceAnimations.push(animate(node,{opacity:[0,1],scale:[.86,1],duration:1000,delay:160+i*95,ease:'outExpo'}));
+        entranceAnimations.push(animate(node,{opacity:[0,1],scale:[.97,1],duration:650,delay:80+i*65,ease:'outExpo'}));
         
       });
     }
-    $$('.portal-node').forEach((node,i)=>{const float=animate(node,{y:[-7,7],duration:3300+i*450,delay:i*190,alternate:true,loop:true,autoplay:false,ease:'inOutSine'});ambientAnimations.push(float);});
+    $$('.portal-node').forEach((node,i)=>{const float=animate(node,{y:[-3,3],duration:4400+i*320,delay:i*190,alternate:true,loop:true,autoplay:false,ease:'inOutSine'});ambientAnimations.push(float);});
     // Continuous float is independent of magnetic hover; remove only the hovered properties.
     $$('.portal-node').forEach(node=>{
       const move=ev=>{
@@ -440,7 +466,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
         const rect=node.getBoundingClientRect(),x=(ev.clientX-rect.left)/rect.width,y=(ev.clientY-rect.top)/rect.height;
         node.style.setProperty('--px',`${x*100}%`);node.style.setProperty('--py',`${y*100}%`);
         utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');
-        animate(node,{rotateX:(.5-y)*9,rotateY:(x-.5)*11,duration:450,ease:'outQuad'});
+        animate(node,{rotateX:(.5-y)*5,rotateY:(x-.5)*6,duration:350,ease:'outQuad'});
       };
       const leave=()=>{visual.setPortalFocus?.(null);if(!motionEnabled()||page!=='home'||transitions.state!=='closed')return;utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');animate(node,{rotateX:0,rotateY:0,duration:600,ease:createSpring({stiffness:130,damping:18})});};
       const focus=()=>{
@@ -458,6 +484,6 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   const afterPrint=()=>{$$('.report-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    destroy(){transitions.destroy();disposeQuizLayout();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);transitions.destroy();disposeQuizLayout();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

@@ -44,7 +44,7 @@ function shieldContour() {
 }
 
 /** Smooth swept oval section, giving chrome a genuine continuous reflection surface. */
-function rimGeometry(contour, { scale = 1, width = .092, depth = .115, z = .10 } = {}) {
+function rimGeometry(contour, { scale = 1, width = .048, depth = .070, z = .11 } = {}) {
   const points = contour.getSpacedPoints(256).slice(0, -1);
   const count = points.length, sections = 20, positions = [], indices = [];
   for (let i = 0; i < count; i++) {
@@ -73,8 +73,8 @@ function faceGeometry(contour) {
     for (let ring = 0; ring <= rings; ring++) {
       const radius = ring / rings;
       for (const point of outline) {
-        positions.push(point.x * radius * .956, point.y * radius * .956,
-          side === 0 ? .112 + .126 * (1 - radius * radius) : -.045 - .025 * (1 - radius * radius));
+        positions.push(point.x * radius * .83, point.y * radius * .83,
+          side === 0 ? -.07 + .13 * (1 - radius * radius) : -.15 - .025 * (1 - radius * radius));
       }
     }
   }
@@ -107,36 +107,17 @@ export function buildShieldGeometry() {
   const scale = .98 / (glyphGeometry.boundingBox.max.x - glyphGeometry.boundingBox.min.x);
   glyphGeometry.translate(-center.x, -center.y, 0); glyphGeometry.scale(scale, scale, scale);
   glyphGeometry.translate(0, .10, 0);
-  // Seat the lettering directly on the convex face instead of floating over a plane.
-  const edge = contour.getSpacedPoints(192).slice(0, -1).map(point => point.multiplyScalar(.956));
-  const positions = glyphGeometry.attributes.position;
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i), y = positions.getY(i);
-    let boundaryScale = Infinity;
-    for (let j = 0; j < edge.length; j++) {
-      const a = edge[j], b = edge[(j + 1) % edge.length], dx = b.x - a.x, dy = b.y - a.y;
-      const determinant = x * dy - y * dx;
-      if (Math.abs(determinant) < 1e-9) continue;
-      const distance = (a.x * dy - a.y * dx) / determinant;
-      const alongEdge = (a.x * y - a.y * x) / determinant;
-      if (distance > 0 && alongEdge >= 0 && alongEdge <= 1) boundaryScale = Math.min(boundaryScale, distance);
-    }
-    const radius = Number.isFinite(boundaryScale) ? 1 / boundaryScale : 0;
-    const surfaceZ = .112 + .126 * (1 - radius * radius);
-    positions.setZ(i, positions.getZ(i) + surfaceZ - .003);
-  }
+  // The lettering floats in front of the smoked core, revealing separation in parallax.
+  glyphGeometry.translate(0, 0, .30);
   glyphGeometry.computeVertexNormals(); glyphGeometry.computeBoundingBox();
   return {
     rimGeometry: rimGeometry(contour),
     coreGeometry: faceGeometry(contour),
     glyphGeometry,
-    accentGeometry: rimGeometry(contour, { scale: .878, width: .005, depth: .006, z: .15 })
+    accentGeometry: rimGeometry(contour, { scale: .89, width: .007, depth: .009, z: -.03 })
   };
 }
 
-function seededRandom(seed = 41903) {
-  return () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
-}
 function polygonContains(points, x, y) {
   let inside = false;
   for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
@@ -167,41 +148,94 @@ function sloganGrid(maximumCells) {
         }
       }
     }
-    if (cells.length && cells.length <= maximumCells) return cells;
-    if (step > 1000) return [[0, 0]];
+    if (cells.length && cells.length <= maximumCells) return {cells, pitch: step * .00094};
+    if (step > 1000) return {cells: [[0, 0]], pitch: 1};
     step += 1;
   }
 }
 
-/** Stable particle identities and non-overlapping slogan layers, with no canvas dependency. */
-export function createVoxelTargets(count, suppliedGeometries) {
-  if (!Number.isInteger(count) || count < 1 || count > 4096) throw new Error('Voxel count must be an integer between 1 and 4096.');
-  const geometries = suppliedGeometries || buildShieldGeometry();
-  const triangles = [], cumulative = []; let totalArea = 0;
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
-  for (const [key, color] of [['rimGeometry', [.75, .80, .84]], ['coreGeometry', [.15, .18, .20]], ['glyphGeometry', [.90, .94, .88]]]) {
-    const geometry = geometries[key], positions = geometry.attributes.position, index = geometry.index;
-    const vertexCount = index ? index.count : positions.count;
-    for (let i = 0; i < vertexCount; i += 3) {
-      const ia = index ? index.getX(i) : i, ib = index ? index.getX(i + 1) : i + 1, ic = index ? index.getX(i + 2) : i + 2;
-      a.fromBufferAttribute(positions, ia); b.fromBufferAttribute(positions, ib); c.fromBufferAttribute(positions, ic);
-      const area = ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() * .5;
-      if (area < 1e-9) continue;
-      totalArea += area; cumulative.push(totalArea); triangles.push({ a: a.clone(), b: b.clone(), c: c.clone(), color });
+/** Morton ordering pairs nearby regions without random particle crossings. */
+function spatialSort(points) {
+  const xs=points.map(p=>p[0]), ys=points.map(p=>p[1]);
+  const minX=Math.min(...xs), minY=Math.min(...ys);
+  const width=Math.max(...xs)-minX || 1, height=Math.max(...ys)-minY || 1;
+  const spread=value=>{let result=0;for(let bit=0;bit<10;bit++)result|=((value>>bit)&1)<<(bit*2);return result;};
+  const key=p=>spread(Math.round((p[0]-minX)/width*1023))|(spread(Math.round((p[1]-minY)/height*1023))<<1);
+  return points.map((point,index)=>({point,index,key:key(point)})).sort((a,b)=>a.key-b.key||a.index-b.index).map(entry=>entry.point);
+}
+
+function contoursFor(shapes, transform=(point)=>point) {
+  return shapes.map(shape=>({outer:shape.getPoints(12).map(transform),holes:shape.holes.map(hole=>hole.getPoints(12).map(transform))}));
+}
+const contains=(contours,x,y)=>contours.some(c=>polygonContains(c.outer,x,y)&&!c.holes.some(h=>polygonContains(h,x,y)));
+function edgeDistance(points,x,y) {
+  let distance=Infinity;
+  for(let i=0;i<points.length;i++){
+    const a=points[i],b=points[(i+1)%points.length],dx=b.x-a.x,dy=b.y-a.y;
+    const t=THREE.MathUtils.clamp(((x-a.x)*dx+(y-a.y)*dy)/(dx*dx+dy*dy||1),0,1);
+    distance=Math.min(distance,Math.hypot(x-a.x-t*dx,y-a.y-t*dy));
+  }
+  return distance;
+}
+function radialFraction(points,x,y) {
+  if(Math.abs(x)+Math.abs(y)<1e-9)return 0;
+  let boundaryScale=Infinity;
+  for(let i=0;i<points.length;i++){
+    const a=points[i],b=points[(i+1)%points.length],dx=b.x-a.x,dy=b.y-a.y;
+    const determinant=x*dy-y*dx;
+    if(Math.abs(determinant)<1e-9)continue;
+    const distance=(a.x*dy-a.y*dx)/determinant;
+    const along=(a.x*y-a.y*x)/determinant;
+    if(distance>0&&along>=0&&along<=1)boundaryScale=Math.min(boundaryScale,distance);
+  }
+  return Number.isFinite(boundaryScale)?1/boundaryScale:0;
+}
+
+/** One regular XY lattice samples each visible shield layer; no random clusters. */
+function shieldGrid(count, minimumPitch) {
+  const contour=shieldContour().getSpacedPoints(192).slice(0,-1);
+  const core=contour.map(point=>point.clone().multiplyScalar(.83));
+  const shapes=glyphShapes('安'), raw=contoursFor(shapes), all=raw.flatMap(c=>c.outer);
+  const minX=Math.min(...all.map(p=>p.x)),maxX=Math.max(...all.map(p=>p.x));
+  const minY=Math.min(...all.map(p=>p.y)),maxY=Math.max(...all.map(p=>p.y));
+  const scale=.98/(maxX-minX+8),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
+  const letter=contoursFor(shapes,point=>new THREE.Vector2((point.x-cx)*scale,(point.y-cy)*scale+.10));
+  let pitch=Math.max(minimumPitch,Math.sqrt(3.5/count));
+  for(let attempt=0;attempt<80;attempt++){
+    const points=[];
+    for(let gy=Math.ceil(-1.54/pitch);gy<=Math.floor(1.44/pitch);gy++)for(let gx=Math.ceil(-1.22/pitch);gx<=Math.floor(1.22/pitch);gx++){
+      const x=gx*pitch,y=gy*pitch;
+      let z,color;
+      if(contains(letter,x,y)){z=.335;color=[.92,.96,.91];}
+      else if(polygonContains(core,x,y)){
+        const radius=radialFraction(core,x,y);z=-.07+.13*(1-radius*radius);color=[.20,.23,.26];
+      }else if(edgeDistance(contour,x,y)<.050){z=.16;color=[.78,.84,.89];}
+      else continue;
+      points.push([x,y,z,...color]);
     }
+    if(points.length>=count){
+      const ordered=spatialSort(points);
+      // Even selection retains the whole outline and all material regions.
+      return {points:Array.from({length:count},(_,i)=>ordered[Math.floor((i+.5)*ordered.length/count)]),pitch};
+    }
+    if(pitch<=minimumPitch+1e-9)throw new Error('Shield lattice cannot fit the requested glyph count without overlap.');
+    pitch=Math.max(minimumPitch,pitch*.97);
   }
-  const cells = sloganGrid(count), layers = Math.ceil(count / cells.length), random = seededRandom();
-  const starts = new Float32Array(count * 3), ends = new Float32Array(count * 3), colors = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const value = random() * totalArea; let low = 0, high = cumulative.length - 1;
-    while (low < high) { const middle = (low + high) >> 1; if (value > cumulative[middle]) low = middle + 1; else high = middle; }
-    const triangle = triangles[low], sqrt = Math.sqrt(random()), v = random();
-    a.copy(triangle.a).multiplyScalar(1 - sqrt).addScaledVector(triangle.b, sqrt * (1 - v)).addScaledVector(triangle.c, sqrt * v);
-    starts.set([a.x, a.y, a.z], i * 3); colors.set(triangle.color, i * 3);
-    // Extra points fill shallow depth layers while retaining the entire final glyph grid.
-    const cell = cells[i % cells.length], layer = Math.floor(i / cells.length);
-    ends.set([cell[0], cell[1], (layer - (layers - 1) / 2) * .034], i * 3);
+  throw new Error('Shield lattice allocation did not converge.');
+}
+
+/** Actual glyph count, a single depth plane, and an explicit 34% inter-cube gap. */
+export function createVoxelTargets(maximumCount, suppliedGeometries) {
+  if(!Number.isInteger(maximumCount)||maximumCount<1||maximumCount>4096)throw new Error('Voxel count must be an integer between 1 and 4096.');
+  // Keep the optional geometry argument compatible with callers; sampling is analytic.
+  void suppliedGeometries;
+  const {cells,pitch}=sloganGrid(maximumCount),count=cells.length;
+  const endPoints=spatialSort(cells),shield=shieldGrid(count,pitch);
+  const starts=new Float32Array(count*3),ends=new Float32Array(count*3),colors=new Float32Array(count*3);
+  for(let i=0;i<count;i++){
+    const source=shield.points[i],target=endPoints[i];
+    starts.set(source.slice(0,3),i*3);colors.set(source.slice(3,6),i*3);
+    ends.set([target[0],target[1],0],i*3);
   }
-  if (!suppliedGeometries) Object.values(geometries).forEach(g => g.dispose());
-  return { starts, ends, colors };
+  return {count,starts,ends,colors,pitch,cubeSize:pitch*.66,startPitch:shield.pitch};
 }
