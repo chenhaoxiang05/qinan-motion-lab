@@ -1,63 +1,85 @@
-# 亲安 QINAN v4
+# 亲安 QINAN v14 · 类型化接口、实时反馈与交接修复
 
-## 本次更新
+黑、骨白、酸绿与局部钴蓝构成的个人安全界面。四个悬浮入口连接材料核验、家人联系人、情景练习和核验记录；中央完整安印展开外框，呈现「先核实 / 再放心」。
 
-- 黑银液态视觉：弧面金属盾框、烟灰色凸面内芯、真正立体的本地「安」字轮廓，反光来自程序生成的摄影棚环境。
-- 背景使用 GPU 液态光带与鼠标流场；悬浮入口的鼠标/键盘焦点会影响场景，体素切换会触发涟漪。
-- 盾牌与「先核实／再放心」双行标语之间可逆重组，GPU 实例化最多 4096 个体素，移动端初始 2048 个。
-- 收回顺序：内容淡出 90ms → 窗口形变 420ms → 入口文字淡入 120ms。背景遮罩保留到收回完成，漂浮与倾斜动画随后恢复。
-- 展开、打开、收回、关闭四态控制器统一管理时间线；连续点击只保留最新目标，重复关闭、Esc、中途暂停和组件销毁均有清理。
-- 保留四个悬浮入口、右上角唯一返回按钮、答题编号退场、材料类型原位切换、联系人和记录。无 WebGL 时保留本地 SVG 盾牌与标语切换。
+在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。沿用原有访问权限，当前开发分支为 `v14-handoff-fixes`。旧分支和标签完整保留。
 
-## 运行
+> 仓库默认 `main` 保留早期代码，本页展示当前项目状态。开发最新版请先切换到 `v14-handoff-fixes`；下方命令已包含这一步。
+
+## v14 更新
+
+- 核心业务、API 客户端、数据契约、任务服务、React 适配器与全部 TSX 纳入 strict TypeScript；`npm run check` 包含真实 `tsc --noEmit`。保留兼容 JS 入口和已测试的原生视觉模块。
+- 修复系统减少动态时的恢复提示、视频元数据失败提示、销毁后的旧事件回调；原生核验状态也可被读屏播报。
+- 后端可通过 `events_url` 启用真实 SSE 增量文本；支持 UTF-8 分块、去重、超时、取消和同任务轮询恢复。未提供流式接口的后端保持现有轮询，真实服务仍待联调。
+- API 报告/模块/历史/任务增加运行时校验；终态、请求生命周期和错误处理集中到独立任务服务。React 岛新增异常边界、可用原生降级与重试。
+- Rare UI 在功能/教程意图或深链接时加载；主页不再提前下载整包组件。安印静止后停止重复 GPU 绘制，交互变化时唤醒，保留 v13 外观与动效。
+- 新增 CI、生产反代与缓存/SSE 配置示例、可重复运行的交接打包脚本。详见 [修复验收](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/docs/V14-REVIEW.md)、[接口接入](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/docs/API-INTEGRATION.md)、[SSE 协议](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/docs/SSE-CONTRACT.md)。
+
+## 在其他设备继续开发
+
+推荐 Node.js 22.12+ 或 Node.js 24 LTS。
 
 ```sh
+git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
+cd qinan-motion-lab
+git switch v14-handoff-fixes
 npm ci
 npm run dev
+```
+
+```sh
 npm run check
 npm test
 npm run build
 ```
 
-静态产物在 dist/。保留 hash 路由、联系人 qinan-contacts 本地存储及原有 /api 接口。默认交互演示模式，未附带模型后端。Three.js 延迟加载，功能页面先挂载；中文轮廓和字体均在本地，许可见 public/licenses。
+构建输出在 `dist/`，与源码一起保留。React/Motion 组件在功能意图时加载；Three.js 场景是启动所需的独立分块。组件样式仅生成带前缀的 Tailwind utilities，没有全局 preflight。
 
-## 验证范围
+保留 hash 路由和 `qinan-contacts` 浏览器本地存储。默认请求同源 `/api`；开发时 Vite 转发至 `http://127.0.0.1:8010`。复制 `.env.example` 为 `.env.local` 可修改代理或公开 API 地址，详见 [后端接入](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/docs/API-INTEGRATION.md)。
 
-28 个自动化检查通过，包括上传/联系人/报告/答题回归、动画生命周期、真实 Anime.js 基础动画与 createLayout 无布局变化分支、几何法线/索引/字形孔洞、移动端与桌面体素目标及 WebGL 失败降级。语法检查和生产构建通过。
+仓库包含前端，不包含检测模型后端。当前 GPT Site 尚未连接核验服务，上传提交和历史读取会显示真实请求错误；不会生成模拟报告。联系人、情景练习和视觉交互可独立使用。
 
-真实 createLayout 检查在 JSDOM 中主动完成时间线；它不具备浏览器的布局与合成能力，不能证明收回时没有视觉闪烁。当前环境浏览器工具无法启动，WebGL 观感、真实弹窗合成和逐帧动效仍未完成浏览器验收。
+## 验证与同步
 
-## 设计与动效参考
+自动化检查覆盖类型、接口解析、真实 HTTP SSE 测试服务、任务恢复、组件故障降级、销毁清理、按需加载及原有业务交互。详见 [v14 修复验收](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/docs/V14-REVIEW.md)。
 
-- [React Bits / Liquid Chrome](https://www.reactbits.dev/backgrounds/liquid-chrome)：液态金属背景的视觉方向。
-- [Codrops / Akaru 2019](https://tympanus.net/codrops/2019/12/30/case-study-akaru-2019/)：通过材质与交互塑造主视觉。
-- [Codrops / Phantom Land](https://tympanus.net/codrops/2025/06/30/invisible-forces-the-making-of-phantom-lands-interactive-grid-and-3d-face-particle-system/)：场景、指针与粒子的联动思路。
-- [Anime.js / Animate modal dialog](https://animejs.com/documentation/layout/usage/animate-modal-dialog/)：原生 dialog 的共享布局。
-- [Anime.js / Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation/)：答题进度的布局退场。
+浏览器工具仍因环境初始化错误无法启动，真实浏览器布局、GPU 观感、移动触控和原生文件选择器尚未验收。静态图形检查和 JSDOM 回归不能代替这些检查；旧版本的独立着色器像素变化也不等同于完整页面的可见动效。
 
-本项目自行实现背景 shader、盾牌建模与场景交互，没有远程拉取上述网站的素材。
+每次完成更新都同步 GitHub 和同一个 GPT Site，保持站点原有访问权限；协作约定见 [AGENTS.md](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/AGENTS.md)。部署关联保存在 `.openai/hosting.json`。普通本地开发无需修改，部署自己的 Sites 项目时需替换项目 ID。
 
-## 在其他设备继续开发
+## 历史版本
 
-推荐 Node.js 22.12+（或 Node.js 24 LTS）。
+[完整版本说明与源码下载](docs/VERSIONS.md) · [GitHub Releases](https://github.com/chenhaoxiang05/qinan-motion-lab/releases)
 
-```sh
-git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
-cd qinan-motion-lab
-npm ci
-npm run dev
-```
+每个版本固定到原始提交，并附当时的说明和源码压缩包。当前推荐开发入口为 v14；历史版本保留用于对比，不代表已完成真实后端或真机验收。
 
-旧版完整源码和当时的构建产物保留在 Git 历史及标签：
-
-| 标签 | 版本 |
+| 版本 | Git 入口 |
 | --- | --- |
-| v1.0.0 | 初版 |
-| v2.0.0 | 第二版 |
-| v2.1.0 | 第二版后续迭代 |
-| v3.0.0 | 第三版盾牌与共享布局 |
-| v4.0.0 | 第四版黑银液态视觉 |
+| 初版 | `v1.0.0` |
+| 第二版 | `v2.0.0` / `v2.1.0` |
+| 第三版盾牌与共享布局 | `v3.0.0` |
+| 第四版黑银视觉 | `v4.0.0` |
+| 第五版文字与体素修复 | `v5-experimental` |
+| 第六版 FUI 与 Rare UI | `v6-fui` |
+| 第七版聚合启动与情景练习 | `v7-experience` |
+| 第八版字标与答题布局 | `v8-flow` |
+| 第九版信号海报与机械安印 | `v9-signal` |
+| 第十版完整安印与动态信号场 | `v10-motion` |
+| 第十一版内容序章与使用示例 | `v11-flow` |
+| 第十二版荧光环境与点阵交互 | `v12-ambient` |
+| 第十三版对角光场与操作反馈 | `v13-feedback` |
+| 第十四版工程与交接修复 | `v14-handoff-fixes` |
 
-查看旧版可运行 `git switch --detach v3.0.0`；从旧版继续修改可运行 `git switch -c my-redesign v3.0.0`。回到最新版用 `git switch main`，切换后重新执行 `npm ci`。
+查看旧版：`git switch --detach v3.0.0`；从旧版继续：`git switch -c my-redesign v3.0.0`。切换版本后重新执行 `npm ci`。
 
-源码使用 MIT 许可证；字体及第三方依赖遵循各自许可证，字体许可随仓库保留在 public/licenses。仓库包含前端与已有 API 对接代码，不包含模型后端或运行时的个人联系人数据。`.openai/hosting.json` 是原 Sites 部署关联，普通本地开发无需修改，部署到自己的 Sites 项目时应替换项目 ID。
+## 来源与许可
+
+原创 QINAN 代码使用 [MIT](LICENSE)。**Rare UI 组件保留独立的 MIT + Commons Clause + Attribution 条款，不适用本项目的 MIT 再许可。**组件作为此应用的一部分提供，不作为独立组件库分发。来源、固定提交、校验值和修改说明见 [第三方说明](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/third-party/rare-ui/README.md) 与 [完整许可](https://github.com/chenhaoxiang05/qinan-motion-lab/blob/v14-handoff-fixes/third-party/rare-ui/LICENSE)。网站页脚提供可见署名，发布产物也包含许可文本。
+
+- [Rare UI Folder](https://www.rareui.com/components/foldercomponent)、[Inline AI Status](https://www.rareui.com/components/aistatus)、[Grid Reveal](https://www.rareui.com/components/gridreveal)：直接改编的组件源码，Copyright © 2026 Swami Malode。
+- [Rare UI Faq](https://www.rareui.com/r/faq.json) 与 [AnimatedCounter](https://www.rareui.com/r/animated-counter.json)：直接改编的复盘与计分组件。
+- [Rare UI Gooey Nav](https://www.rareui.com/components/gooeynav)：直接改编的材料选择组件。v12 使用过的 Matrix Orb 原始来源保留在仓库中，v13 不再挂载或导入首页点阵。
+- [JIEJOE 首页](https://www.jiejoe.com/home)：参考左上、右下的大光场与惯性跟随的层次关系；不包含其图片、字体或网站源码。
+- [Anime.js Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation)：答题队列退场。
+- [Michael Rigley 的 Marathon 设计案例](https://www.michaelrigley.com/work/marathon/)作为配色、图形和信息排布参考；不包含游戏商标、美术或专有字体。QINAN 英文字标为原创路径，中文轮廓来自许可允许的 Noto Sans CJK；动效使用 Anime.js，并非 Rare UI 的 Valorant 组件。
+- 本地字体和其他依赖遵循各自许可，字体许可随发布保留在 `public/licenses/`。
