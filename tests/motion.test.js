@@ -30,7 +30,12 @@ test('real Anime.js proxy transitions retain modality through return and preserv
   $('#settings').click();$('#toggleMotion').click();$('#settingsDone').click();
   $('#closeWorkspace').click();await new Promise(r=>setTimeout(r,150));
   assert.equal($('#workspace').open,true,'native modality stays active during shell return');
+  assert.equal($('#workspaceBackdrop').classList.contains('is-visible'),false,'blur/dimming disappear before shell return finishes');
+  assert.equal($('#workspaceBackdrop').style.visibility,'hidden');assert.equal($('#workspaceBackdrop').style.opacity,'0');
+  assert.equal($('#workspaceBackdrop').style.transition,'none');
+  assert.equal(w.document.body.classList.contains('feature-open'),true,'scroll remains locked during shell return');
   await until(()=>!$('#workspace').open&&!$('#workspaceBackdrop').classList.contains('is-visible'));
   w.location.hash='contacts';await until(()=>$('#contactForm')&&$('#workspaceBody').style.opacity==='1'&&!$('#workspace').classList.contains('is-transitioning'));
   assert.equal($('#workspace').open,true);assert.ok(Number($('#workspace').style.opacity)>.99);assert.ok($('#contactForm'));
+  assert.equal($('#workspaceBackdrop').classList.contains('is-visible'),true);assert.equal($('#workspaceBackdrop').style.getPropertyValue('backdrop-filter'),'');
 });

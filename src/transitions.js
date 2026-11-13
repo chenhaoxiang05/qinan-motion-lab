@@ -13,10 +13,29 @@ export function createWorkspaceTransitions({
   const opacity=(nodes,value)=>nodes.forEach(node=>node.style.opacity=String(value));
   const animated=()=>!forceInstant&&!document.hidden&&motionEnabled();
   const mask=value=>dialog.classList.toggle('is-transitioning',value);
-  const backdropVisible=value=>{
-    backdrop?.classList.toggle('is-visible',value);
-    document.body.classList.toggle('feature-open',value);
-  };
+  // Visual dimming and native modality have different lifetimes: dimming ends
+  // at close start, while scroll lock remains until the return has settled.
+  const backdropProperties=['transition','opacity','visibility','background','backdrop-filter','-webkit-backdrop-filter'];
+  const backdropDefaults=new Map(backdropProperties.map(property=>[property,{
+    value:backdrop?.style.getPropertyValue(property)||'',priority:backdrop?.style.getPropertyPriority(property)||'',
+  }]));
+  const scrollLocked=value=>document.body.classList.toggle('feature-open',value);
+  function restoreBackdropStyles(){
+    if(!backdrop)return;
+    for(const [property,{value,priority}] of backdropDefaults){
+      if(value)backdrop.style.setProperty(property,value,priority);else backdrop.style.removeProperty(property);
+    }
+  }
+  function showBackdrop(){restoreBackdropStyles();backdrop?.classList.add('is-visible');}
+  function hideBackdropImmediately(){
+    if(!backdrop)return;
+    backdrop.style.transition='none';
+    backdrop.style.opacity='0';backdrop.style.visibility='hidden';
+    backdrop.style.background='transparent';backdrop.style.setProperty('backdrop-filter','none');
+    backdrop.style.setProperty('-webkit-backdrop-filter','none');
+    backdrop.classList.remove('is-visible');
+  }
+  function releaseBackdrop(){backdrop?.classList.remove('is-visible');restoreBackdropStyles();scrollLocked(false);}
   const rect=node=>{
     const bounds=node.getBoundingClientRect();
     return {left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height,
@@ -72,7 +91,7 @@ export function createWorkspaceTransitions({
   }
   function open(request){
     state='opening';origin=request.portal?.isConnected?request.portal:null;
-    onBusy();backdropVisible(true);request.render();
+    onBusy();scrollLocked(true);showBackdrop();request.render();
     resetSurface();opacity(content(),0);
     const from=origin?rect(origin):null;
     const expand=()=>{
@@ -91,7 +110,7 @@ export function createWorkspaceTransitions({
   function close(){
     if(state==='closing')return;
     if(state==='closed'){drain();return;}
-    state='closing';onBusy();
+    state='closing';hideBackdropImmediately();onBusy();
     const returned=origin;
     const finishClose=()=>{
       clearProxy();
@@ -99,7 +118,7 @@ export function createWorkspaceTransitions({
       if(dialog.open)dialog.close();
       resetSurface();if(returned)returned.style.visibility='';
       fade(portalContent(returned),0,1,120,()=>{
-        resetSurface();backdropVisible(false);state='closed';onClosed();origin=null;
+        resetSurface();releaseBackdrop();state='closed';onClosed();origin=null;
         if(returned?.isConnected)returned.focus({preventScroll:true});
         if(!queued||queued.key==='home')onHome();drain();
       });
@@ -145,7 +164,7 @@ export function createWorkspaceTransitions({
       try{active?.cancel();}catch{/* Always restore the DOM. */}active=null;
       clearProxy();resetSurface();
       if(origin){origin.style.visibility='';opacity(portalContent(origin),1);}
-      backdropVisible(false);if(dialog.open)dialog.close();state='closed';proxy.remove();
+      releaseBackdrop();if(dialog.open)dialog.close();state='closed';proxy.remove();
       document.removeEventListener('visibilitychange',visibility);view.removeEventListener('resize',resize);
     },
   };

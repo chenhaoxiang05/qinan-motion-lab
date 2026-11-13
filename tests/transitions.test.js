@@ -41,10 +41,14 @@ function assertSettled(f,open){
   assert.equal(f.dialog.open,open);assert.equal(f.dialog.classList.contains('is-transitioning'),false);
   assert.ok([...f.surface.children].every(node=>node.style.opacity==='1'));
   assert.equal(f.dialog.querySelector('.workspace-proxy').style.display,'none');
+  assert.equal(f.document.body.classList.contains('feature-open'),open);
+  assert.equal(f.backdrop.classList.contains('is-visible'),open);
+  assert.equal(f.backdrop.style.transition,'');
+  assert.equal(f.backdrop.style.getPropertyValue('backdrop-filter'),'');
   if(!open){assert.equal(f.backdrop.classList.contains('is-visible'),false);assert.equal(f.portals[0].querySelector('.portal-content').style.opacity,'1');}
 }
 
-test('empty proxy morphs while native dialog and backdrop remain open until return finishes',t=>{
+test('closing clears visual dimming immediately while native dialog and scroll lock survive proxy return',t=>{
   const f=fixture(t),{controller,dialog,surface,backdrop,portals,calls,stages}=f;
   f.navigate('check');assert.equal(controller.state,'opening');assert.equal(dialog.open,false);
   assert.equal(stages.at(-1).params.duration,90);f.complete();
@@ -54,18 +58,29 @@ test('empty proxy morphs while native dialog and backdrop remain open until retu
   assert.ok(dialog.classList.contains('is-transitioning'));assert.ok([...surface.children].every(node=>node.style.opacity==='0'));
   f.complete();assert.equal(proxy.style.display,'none');assert.equal(stages.at(-1).params.duration,160);
   f.complete();assertSettled(f,true);assert.equal(calls.filter(c=>c==='opened').length,1);
-  f.navigate('home');assert.equal(stages.at(-1).params.duration,90);f.complete();
+  f.navigate('home');assert.equal(stages.at(-1).params.duration,90);
+  assert.equal(backdrop.classList.contains('is-visible'),false,'dimming ends at close start');
+  assert.equal(backdrop.style.transition,'none');assert.equal(backdrop.style.opacity,'0');
+  assert.equal(backdrop.style.visibility,'hidden');assert.equal(backdrop.style.getPropertyValue('backdrop-filter'),'backdropFilter' in backdrop.style?'none':'');
+  assert.equal(backdrop.style.background,'transparent');
+  assert.equal(dialog.open,true);assert.equal(f.document.body.classList.contains('feature-open'),true);
+  f.complete();
   assert.equal(dialog.open,true,'native top layer must not close at morph start');
   assert.equal(stages.at(-1).params.duration,420);assert.deepEqual(stages.at(-1).params.width,[900,240]);
-  assert.ok(backdrop.classList.contains('is-visible'));assert.equal(calls.includes('home'),false);
+  assert.equal(backdrop.classList.contains('is-visible'),false);assert.equal(calls.includes('home'),false);
+  assert.equal(f.document.body.classList.contains('feature-open'),true);
   f.complete();assert.equal(dialog.open,false);assert.equal(stages.at(-1).params.duration,120);
-  assert.ok(backdrop.classList.contains('is-visible'));f.complete();assertSettled(f,false);
+  assert.equal(backdrop.classList.contains('is-visible'),false);f.complete();assertSettled(f,false);
   assert.equal(calls.filter(c=>c==='home').length,1);assert.strictEqual(f.document.activeElement,portals[0]);
 });
 
 test('latest queued route wins after close; ambient never restarts between queued windows',t=>{
   const f=fixture(t);f.open();f.navigate('home');f.navigate('history');f.navigate('contacts');
+  assert.equal(f.backdrop.style.getPropertyValue('backdrop-filter'),'backdropFilter' in f.backdrop.style?'none':'');
   f.complete();f.complete();assert.deepEqual(f.renders,['check']);f.complete();
+  assert.equal(f.backdrop.classList.contains('is-visible'),true,'queued opening restores its backdrop');
+  assert.equal(f.backdrop.style.transition,'');assert.equal(f.backdrop.style.getPropertyValue('backdrop-filter'),'');
+  assert.equal(f.document.body.classList.contains('feature-open'),true);
   assert.equal(f.controller.state,'opening');assert.deepEqual(f.renders,['check','contacts']);assert.equal(f.calls.includes('home'),false);
   f.complete();f.complete();f.complete();assertSettled(f,true);assert.equal(f.portals[1].style.visibility,'hidden');
 });
@@ -134,6 +149,7 @@ test('destroy clears masks, restores origin, removes the proxy and rejects late 
   f.controller.destroy();stage.params.onComplete();f.navigate('contacts');
   assert.equal(stage.cancelled,true);assert.equal(f.controller.state,'closed');assert.equal(f.dialog.open,false);
   assert.equal(f.dialog.querySelector('.workspace-proxy'),null);assert.equal(f.backdrop.classList.contains('is-visible'),false);
+  assert.equal(f.backdrop.style.transition,'');assert.equal(f.backdrop.style.getPropertyValue('backdrop-filter'),'');assert.equal(f.document.body.classList.contains('feature-open'),false);
   assert.equal(f.portals[0].style.visibility,'');assert.equal(f.portals[0].querySelector('.portal-content').style.opacity,'1');
 });
 

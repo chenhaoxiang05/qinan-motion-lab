@@ -5,6 +5,8 @@ import { MotionConfig } from 'motion/react';
 import Folder from './rare-ui/folder-component';
 import GridReveal from './rare-ui/grid-reveal';
 import AiStatus from './rare-ui/ai-status';
+import AnimatedCounter from './rare-ui/animated-counter';
+import Faq from './rare-ui/faq';
 import { MotionPausedContext } from './rare-ui/motion-settings';
 import './rare-ui/utilities.css';
 import './rare-ui/islands.css';
@@ -70,6 +72,36 @@ function StatusIsland({ state = 'thinking', label, detail, paused }) {
   </div></MotionBoundary>;
 }
 
+function CounterIsland({ value = 0, paused, label = '', suffix = '' }) {
+  const score = Number.isFinite(value) ? value : 0;
+  const caption = String(label ?? '');
+  const ending = String(suffix ?? '');
+  return <MotionBoundary paused={paused}>
+    <span className="qi-counter" data-value={score} data-paused={paused || undefined}>
+      <span className="qi-counter-readable">{caption ? `${caption} ` : ''}{score}{ending}</span>
+      <span className="qi-counter-visual" aria-hidden="true">
+        {caption && <span className="qi-counter-label">{caption}</span>}
+        <AnimatedCounter value={score} duration={0.42} separator="" className="qi-counter-number" />
+        {ending && <span className="qi-counter-suffix">{ending}</span>}
+      </span>
+    </span>
+  </MotionBoundary>;
+}
+
+function FaqIsland({ items = [], value, onValueChange, paused, accent = '#c2ff00' }) {
+  // The vanilla adapter accepts text, never HTML or React nodes from question data.
+  const entries = items.map(item => ({
+    id: String(item.id),
+    question: String(item.question ?? ''),
+    answer: String(item.answer ?? ''),
+  }));
+  return <MotionBoundary paused={paused}>
+    <div className="qi-faq" data-paused={paused || undefined}>
+      <Faq items={entries} value={value} onValueChange={onValueChange} accent={accent} avatar={null} />
+    </div>
+  </MotionBoundary>;
+}
+
 /** Owns only host descendants. Call destroy BEFORE replacing/removing host markup. */
 function mountIsland(host, Component, initialProps, upload = false) {
   let props = { ...initialProps };
@@ -107,3 +139,5 @@ function mountIsland(host, Component, initialProps, upload = false) {
 
 export function mountUpload(host, props = {}) { return mountIsland(host, UploadIsland, props, true); }
 export function mountStatus(host, props = {}) { return mountIsland(host, StatusIsland, props); }
+export function mountCounter(host, props = {}) { return mountIsland(host, CounterIsland, props); }
+export function mountFaq(host, props = {}) { return mountIsland(host, FaqIsland, props); }

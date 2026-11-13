@@ -1,8 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
+import {readFileSync} from 'node:fs';
 import {createBootSequence} from '../src/boot.js';
 
+const glyph = readFileSync(new URL('../src/boot-glyph.svg',import.meta.url),'utf8');
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 function deferred() {
   let resolve, reject;
@@ -10,16 +12,45 @@ function deferred() {
   return {promise, resolve, reject};
 }
 function setup(t, {returning = false, reduced = false, blockedStorage = false} = {}) {
-  const dom = new JSDOM('<button id="before">入口</button><div id="boot" hidden><span data-boot-stage></span><button data-boot-skip>跳过</button></div>', {url:'https://qinan.test/'});
+  const dom = new JSDOM(`<button id="before">入口</button><div id="boot" hidden>${glyph}<h2 data-boot-title>正在加载亲安</h2><span data-boot-stage></span>${[0,1,2].map(i=>`<div data-boot-milestone="${i}"><span data-boot-milestone-label></span></div>`).join('')}<button data-boot-skip>跳过</button></div>`, {url:'https://qinan.test/'});
   const {window:w} = dom;
   const listeners = new Set();
   w.matchMedia = () => ({matches:reduced, addEventListener(type, fn) {listeners.add(fn);}, removeEventListener(type, fn) {listeners.delete(fn);}});
-  if (returning) w.sessionStorage.setItem('qinan-boot-complete', 'true');
+  if (returning) w.sessionStorage.setItem('qinan-boot-v7-complete', 'true');
   if (blockedStorage) Object.defineProperty(w, 'sessionStorage', {get() {throw new Error('Storage blocked');}});
   t.mock.timers.enable({apis:['setTimeout']});
   const root = w.document.querySelector('#boot');
   t.after(() => dom.window.close());
   return {w, root, listeners, create:options => createBootSequence({root,...options})};
+}
+
+function fakeAnime({automatic = false} = {}) {
+  const timelines = [];
+  const createTimeline = options => {
+    let timer;
+    const timeline = {
+      options,targets:[],parameters:null,cancelled:0,
+      add(targets,parameters) {this.targets = targets;this.parameters = parameters;return this;},
+      play() {
+        if (automatic) {
+          const delay = Math.max(0,...this.targets.map((target,index) => this.parameters.delay(target,index)));
+          timer = setTimeout(() => options.onComplete(),this.parameters.duration + delay);
+        }
+        return this;
+      },
+      cancel() {this.cancelled++;clearTimeout(timer);},
+      complete() {options.onComplete();},
+    };
+    timelines.push(timeline);
+    return timeline;
+  };
+  return {timelines,createTimeline};
+}
+
+function stagedReadiness() {
+  const pending = [deferred(),deferred(),deferred()];
+  const stages = ['界面','交互组件','场景'].map((label,index) => ({id:`stage-${index}`,label,ready:pending[index].promise}));
+  return {pending,stages};
 }
 
 test('first visit waits 2.4 seconds and real readiness, then releases the initial route', async t => {
@@ -30,9 +61,9 @@ test('first visit waits 2.4 seconds and real readiness, then releases the initia
   boot.finished.then(() => {routeOpened = true;});
   assert.equal(root.hidden, false);
   assert.equal(w.document.documentElement.dataset.boot, 'loading');
-  assert.equal(root.querySelector('[data-boot-stage]').textContent, '加载界面');
+  assert.equal(root.querySelector('[data-boot-stage]').textContent, '正在准备界面');
   await flush();
-  assert.equal(root.dataset.phase, 'scene');
+  assert.equal(root.dataset.phase, 'loading');
   scene.resolve();
   await flush();
   assert.equal(root.querySelector('[data-boot-stage]').textContent, '已就绪');
@@ -44,7 +75,7 @@ test('first visit waits 2.4 seconds and real readiness, then releases the initia
   assert.equal(routeOpened, true);
   assert.equal(root.hidden, true);
   assert.equal(w.document.documentElement.dataset.boot, 'ready');
-  assert.equal(w.sessionStorage.getItem('qinan-boot-complete'), 'true');
+  assert.equal(w.sessionStorage.getItem('qinan-boot-v7-complete'), 'true');
   assert.equal(listeners.size, 0);
 });
 
@@ -56,6 +87,8 @@ test('a returning tab uses a 0.4-second entrance, but does not reveal before sce
   await flush();
   assert.equal(root.hidden, false);
   scene.resolve();
+  await flush();
+  t.mock.timers.tick(200);
   assert.deepEqual(await boot.finished, {reason:'ready'});
   assert.equal(root.hidden, true);
 });
@@ -127,11 +160,11 @@ test('a reduced-motion change dismisses the overlay and destroy is idempotent', 
   for (const listener of [...listeners]) listener({matches:true});
   assert.deepEqual(await boot.finished, {reason:'paused'});
   assert.equal(root.hidden, true);
-  w.sessionStorage.removeItem('qinan-boot-complete');
+  w.sessionStorage.removeItem('qinan-boot-v7-complete');
   const next = create({ready:new Promise(() => {})});
   next.destroy();next.destroy();next.skip();
   assert.deepEqual(await next.finished, {reason:'destroyed'});
-  assert.equal(w.sessionStorage.getItem('qinan-boot-complete'), null, 'HMR cleanup does not count as a completed visit');
+  assert.equal(w.sessionStorage.getItem('qinan-boot-v7-complete'), null, 'HMR cleanup does not count as a completed visit');
   t.mock.timers.tick(10000);
   assert.equal(root.hidden, true);
   assert.equal(listeners.size, 0);
@@ -204,4 +237,185 @@ test('timeout restores interaction and focus even when scene readiness never set
   await boot.finished;
   assert.equal(before.hasAttribute('inert'), false);
   assert.equal(w.document.activeElement, before);
+});
+
+test('real milestones gate ordered groups of four even when chunks settle out of order', async t => {
+  const {root, create} = setup(t);
+  const {pending,stages} = stagedReadiness();
+  const anime = fakeAnime();
+  const boot = create({stages,createTimeline:anime.createTimeline});
+  pending[2].resolve();
+  await flush();
+  assert.equal(anime.timelines.length, 0, 'a later chunk cannot assemble an earlier readiness group');
+  assert.equal(root.querySelector('[data-boot-milestone="2"]').dataset.state, 'ready');
+  assert.equal(root.querySelector('[data-boot-stage]').textContent, '正在准备界面');
+  pending[0].resolve();
+  await flush();
+  assert.equal(anime.timelines.length, 1);
+  assert.deepEqual(anime.timelines[0].targets.map(target => target.dataset.bootPiece), ['0','1','6','7']);
+  assert.equal(root.querySelector('[data-boot-stage]').textContent, '正在准备交互组件');
+  pending[1].resolve({fallback:true,label:'基础交互已就绪'});
+  await flush();
+  assert.equal(root.querySelector('[data-boot-milestone="1"]').dataset.state, 'fallback');
+  assert.equal(root.querySelector('[data-boot-milestone="1"] [data-boot-milestone-label]').textContent, '基础交互已就绪');
+  assert.equal(anime.timelines.length, 1, 'groups do not compete for the same assembly frame');
+  anime.timelines[0].complete();
+  assert.equal(anime.timelines.length, 2);
+  assert.deepEqual(anime.timelines[1].targets.map(target => target.dataset.bootPiece), ['2','3','8','9']);
+  anime.timelines[1].complete();
+  assert.deepEqual(anime.timelines[2].targets.map(target => target.dataset.bootPiece), ['4','5','10','11']);
+  anime.timelines[2].complete();
+  assert.equal(root.dataset.assembled, 'true');
+  assert.equal(root.querySelector('.boot-complete-word').style.opacity, '1');
+  assert.ok([...root.querySelectorAll('[data-boot-piece]')].every(piece => piece.dataset.state === 'assembled' && piece.style.opacity === '0'));
+  assert.equal(root.querySelector('[data-boot-title]').textContent, '正在加载亲安');
+  t.mock.timers.tick(2399);
+  assert.equal(root.hidden, false);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await boot.finished, {reason:'ready'});
+});
+
+test('fast milestones produce a 2.4-second first assembly and a 400ms same-tab refresh', async t => {
+  const {w,root,create} = setup(t);
+  const stages = ['界面','交互组件','场景'].map((label,index) => ({id:`stage-${index}`,label,ready:Promise.resolve()}));
+  const firstAnime = fakeAnime({automatic:true});
+  const first = create({stages,createTimeline:firstAnime.createTimeline});
+  await flush();
+  // Step the fake clock at each engine completion, as a browser does.
+  for (let i = 0; i < 3; i++) t.mock.timers.tick(680);
+  assert.equal(firstAnime.timelines.length, 3);
+  assert.equal(root.dataset.assembled, 'true');
+  t.mock.timers.tick(359);
+  assert.equal(root.hidden, false);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await first.finished, {reason:'ready'});
+  assert.equal(w.sessionStorage.getItem('qinan-boot-v7-complete'), 'true');
+  const repeatAnime = fakeAnime({automatic:true});
+  const repeat = create({stages,createTimeline:repeatAnime.createTimeline});
+  await flush();
+  for (let i = 0; i < 3; i++) t.mock.timers.tick(65);
+  assert.equal(root.dataset.assembled, 'true');
+  t.mock.timers.tick(204);
+  assert.equal(root.hidden, false);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await repeat.finished, {reason:'ready'});
+});
+
+test('the last assembly holds for at least 200ms after delayed real readiness', async t => {
+  const {root,create} = setup(t, {returning:true});
+  const {pending,stages} = stagedReadiness();
+  const anime = fakeAnime();
+  const boot = create({stages,createTimeline:anime.createTimeline});
+  pending[0].resolve();pending[1].resolve();
+  await flush();
+  anime.timelines[0].complete();anime.timelines[1].complete();
+  t.mock.timers.tick(1500);
+  assert.equal(root.dataset.assembled, undefined);
+  assert.equal(root.hidden, false);
+  pending[2].resolve();
+  await flush();
+  anime.timelines[2].complete();
+  t.mock.timers.tick(199);
+  assert.equal(root.hidden, false);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await boot.finished, {reason:'ready'});
+});
+
+test('skipping an active group cancels it and ignores late callbacks and milestone resolutions', async t => {
+  const {w,root,create} = setup(t);
+  const {pending,stages} = stagedReadiness();
+  const anime = fakeAnime();
+  const boot = create({stages,createTimeline:anime.createTimeline});
+  pending[0].resolve();
+  await flush();
+  const old = anime.timelines[0];
+  boot.skip();
+  assert.deepEqual(await boot.finished, {reason:'skip'});
+  assert.equal(old.cancelled, 1);
+  const markup = root.innerHTML;
+  old.complete();pending[1].reject(new Error('late failure'));pending[2].resolve();
+  await flush();
+  t.mock.timers.tick(10000);
+  assert.equal(anime.timelines.length, 1);
+  assert.equal(root.innerHTML, markup);
+  assert.equal(root.hidden, true);
+  assert.equal(w.document.querySelector('#before').hasAttribute('inert'), false);
+});
+
+test('pausing during the final group cancels its late completion and releases background controls', async t => {
+  const {w,root,create} = setup(t);
+  const anime = fakeAnime();
+  const stages = ['界面','交互组件','场景'].map(label => ({label,ready:Promise.resolve()}));
+  const boot = create({stages,createTimeline:anime.createTimeline});
+  await flush();
+  anime.timelines[0].complete();anime.timelines[1].complete();
+  const last = anime.timelines[2];
+  boot.setPaused(true);
+  assert.deepEqual(await boot.finished, {reason:'paused'});
+  assert.equal(last.cancelled, 1);
+  last.complete();
+  t.mock.timers.tick(10000);
+  assert.equal(root.dataset.assembled, undefined);
+  assert.equal(root.hidden, true);
+  assert.equal(w.document.querySelector('#before').hasAttribute('inert'), false);
+});
+
+test('a never-ready milestone remains pending until the four-second fail-open', async t => {
+  const {root,create} = setup(t);
+  const {pending,stages} = stagedReadiness();
+  const anime = fakeAnime({automatic:true});
+  const boot = create({stages,createTimeline:anime.createTimeline});
+  pending[0].resolve();pending[1].resolve();
+  await flush();
+  t.mock.timers.tick(680);t.mock.timers.tick(680);
+  assert.equal(anime.timelines.length, 2);
+  assert.equal(root.querySelector('[data-boot-stage]').textContent, '正在准备场景');
+  assert.equal(root.querySelector('[data-boot-milestone="2"]').dataset.state, undefined);
+  t.mock.timers.tick(2639);
+  assert.equal(root.hidden, false);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await boot.finished, {reason:'timeout'});
+  assert.equal(root.dataset.assembled, undefined, 'timeout does not pretend that a missing stage completed');
+});
+
+test('an animation construction failure still assembles and never strands the interface', async t => {
+  const {root,create} = setup(t);
+  const stages = ['界面','交互组件','场景'].map(label => ({label,ready:Promise.resolve()}));
+  const boot = create({stages,createTimeline() {throw new Error('animation unavailable');}});
+  await flush();
+  assert.equal(root.dataset.assembled, 'true');
+  t.mock.timers.tick(2400);
+  assert.deepEqual(await boot.finished, {reason:'ready'});
+});
+
+test('v6 visit history does not suppress the new v7 entrance', async t => {
+  const {w,root,create} = setup(t);
+  w.sessionStorage.setItem('qinan-boot-complete', 'true');
+  const boot = create();
+  await flush();
+  t.mock.timers.tick(400);
+  assert.equal(root.hidden, false);
+  assert.equal(root.dataset.variant, 'first');
+  t.mock.timers.tick(2000);
+  await boot.finished;
+  assert.equal(w.sessionStorage.getItem('qinan-boot-complete'), 'true');
+});
+
+test('published boot embeds the same offline contours and twelve clipped pieces as its source SVG', () => {
+  const source = new JSDOM(glyph);
+  const page = new JSDOM(readFileSync(new URL('../index.html',import.meta.url),'utf8'));
+  try {
+    const svg = page.window.document.querySelector('#boot .boot-glyph');
+    assert.equal(svg.querySelectorAll('[data-boot-piece]').length, 12);
+    for (let group = 0; group < 3; group++) assert.equal(svg.querySelectorAll(`[data-boot-group="${group}"]`).length, 4);
+    for (const id of ['boot-glyph-qin','boot-glyph-an']) {
+      const path = svg.querySelector(`#${id}`);
+      assert.equal(path.getAttribute('d'), source.window.document.querySelector(`#${id}`).getAttribute('d'));
+      assert.equal(path.getAttribute('fill-rule'), 'nonzero');
+      assert.ok(path.getAttribute('d').split('M').length > 2, 'the internal contour is retained');
+    }
+    assert.equal(svg.querySelector('.boot-complete-word').getAttribute('opacity'), '0', 'no full-white word flashes before JavaScript places the pieces');
+    assert.equal(svg.querySelectorAll('image').length, 0, 'the entrance does not wait for an external image or font');
+    assert.equal(page.window.document.querySelector('[data-boot-title]').textContent, '正在加载亲安');
+  } finally {source.window.close();page.window.close();}
 });

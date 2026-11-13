@@ -6,12 +6,12 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 
-test('real Rare UI islands commit picker state synchronously and dispose their React roots', async () => {
+test('real Rare UI islands preserve upload, score and review interactions', async t => {
   // Build the actual TSX/Motion adapter, keeping dependencies external so only
   // one React instance is used. The temporary module lives under ignored deps.
   const directory = await mkdtemp(path.resolve('node_modules/.qinan-rare-test-'));
   const outfile = path.join(directory, 'adapter.mjs');
-  const dom = new JSDOM('<div id="upload"></div><div id="status"></div>', { url: 'http://localhost', pretendToBeVisual: true });
+  const dom = new JSDOM('<div id="upload"></div><div id="status"></div><div id="counter"></div><div id="faq"></div>', { url: 'http://localhost', pretendToBeVisual: true });
   const globals = new Map();
   const install = (name, value) => {
     globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
@@ -23,10 +23,12 @@ test('real Rare UI islands commit picker state synchronously and dispose their R
     install('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
     install('requestAnimationFrame', dom.window.requestAnimationFrame.bind(dom.window));
     install('cancelAnimationFrame', dom.window.cancelAnimationFrame.bind(dom.window));
-    window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+    const mediaListeners = new Set();
+    const mediaQuery = { matches: false, addEventListener(type, listener) { if (type === 'change') mediaListeners.add(listener); }, removeEventListener(type, listener) { mediaListeners.delete(listener); }, addListener() {}, removeListener() {} };
+    window.matchMedia = () => mediaQuery;
     install('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     window.ResizeObserver = globalThis.ResizeObserver;
-    const { mountUpload, mountStatus } = await import(pathToFileURL(outfile).href);
+    const { mountUpload, mountStatus, mountCounter, mountFaq } = await import(pathToFileURL(outfile).href);
     const host = document.querySelector('#upload');
     const statusHost = document.querySelector('#status');
     let choices = 0;
@@ -59,6 +61,79 @@ test('real Rare UI islands commit picker state synchronously and dispose their R
     assert.equal(host.childElementCount, 0, 'destroyed upload cannot render stale state');
     assert.equal(statusHost.childElementCount, 0);
     assert.equal(host.classList.contains('rare-island'), false);
+
+    await t.test('counter updates the same island and exposes one current accessible score', async () => {
+      const counterHost = document.querySelector('#counter');
+      const counter = mountCounter(counterHost, { value: 0, label: '已答对', suffix: ' / 6', paused: false });
+      const stableRoot = counterHost.querySelector('.qi-counter');
+      const wheel = counterHost.querySelector('[data-slot="animated-counter-digit"]');
+      assert.ok(wheel, 'the actual upstream digit wheel is mounted');
+      assert.equal(wheel.closest('[aria-hidden="true"]').getAttribute('aria-hidden'), 'true');
+      counter.update({ value: 3 });
+      assert.strictEqual(counterHost.querySelector('.qi-counter'), stableRoot, 'updates preserve the island');
+      assert.strictEqual(counterHost.querySelector('[data-slot="animated-counter-digit"]'), wheel, 'score changes update the existing wheel');
+      assert.equal(counterHost.querySelector('.qi-counter-readable').textContent, '已答对 3 / 6');
+      counter.update({ value: 4, paused: true });
+      assert.equal(counterHost.querySelector('[data-slot="animated-counter"]').textContent, '4', 'pause immediately settles on the real value');
+      assert.equal(counterHost.querySelector('[data-slot="animated-counter-digit"]'), null, 'a paused score cannot remain between faces');
+      assert.equal(counterHost.querySelectorAll('.qi-counter-readable').length, 1);
+      counter.destroy();
+      counter.update({ value: 6 });
+      assert.equal(counterHost.childElementCount, 0, 'late score updates do not remount a destroyed root');
+    });
+
+    await t.test('FAQ preserves controlled expansion, keyboard navigation and plain-text answers', async () => {
+      const faqHost = document.querySelector('#faq');
+      const items = [
+        { id: 'why', question: '危险在哪里？', answer: '<img src=x onerror=alert(1)> 只是原样文本。' },
+        { id: 'verify', question: '怎样核实？', answer: '拨打原来保存的号码。' },
+      ];
+      const selected = [];
+      const faq = mountFaq(faqHost, { items, value: 'why', paused: true, onValueChange(value) { selected.push(value); faq.update({ value }); } });
+      const buttons = [...faqHost.querySelectorAll('[data-slot="faq-question"]')];
+      const region = faqHost.querySelector('[role="region"]');
+      assert.equal(region.textContent, items[0].answer);
+      assert.equal(faqHost.querySelector('img'), null, 'answer data is text, never parsed HTML');
+      assert.equal(buttons[0].getAttribute('aria-controls'), region.id);
+      assert.equal(region.getAttribute('aria-labelledby'), buttons[0].id);
+      assert.notEqual(faqHost.querySelector('[data-slot="faq-answer"]').style.opacity, '0', 'paused open answers are visible immediately');
+      buttons[0].focus();
+      buttons[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      assert.strictEqual(document.activeElement, buttons[1]);
+      buttons[1].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+      assert.strictEqual(document.activeElement, buttons[0]);
+      buttons[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+      assert.strictEqual(document.activeElement, buttons[1]);
+      buttons[1].click();
+      assert.deepEqual(selected, ['verify']);
+      assert.equal(faqHost.querySelector('[role="region"]').textContent, items[1].answer);
+      buttons[1].click();
+      assert.deepEqual(selected, ['verify', null]);
+      assert.equal(faqHost.querySelector('[role="region"]'), null, 'paused closing has no lingering answer');
+      faq.update({ value: 'why', paused: false });
+      faq.update({ paused: true });
+      assert.equal(faqHost.querySelector('[role="region"]').textContent, items[0].answer);
+      assert.notEqual(faqHost.querySelector('[data-slot="faq-answer"]').style.opacity, '0', 'pausing during entrance removes stale opacity');
+      faq.destroy();
+      faq.update({ value: 'verify' });
+      assert.equal(faqHost.childElementCount, 0);
+      assert.equal(faqHost.classList.contains('rare-island'), false);
+    });
+
+    await t.test('system reduced motion shows final scores and expanded answers without hidden initial states', () => {
+      mediaQuery.matches = true;
+      for (const listener of mediaListeners) listener({ matches: true });
+      const counterHost = document.querySelector('#counter');
+      const faqHost = document.querySelector('#faq');
+      const counter = mountCounter(counterHost, { value: 6, paused: false });
+      const faq = mountFaq(faqHost, { items: [{ id: 'safe', question: '下一步？', answer: '独立核实。' }], value: 'safe', paused: false });
+      assert.equal(counterHost.querySelector('[data-slot="animated-counter"]').textContent, '6');
+      assert.equal(counterHost.querySelector('[data-slot="animated-counter-digit"]'), null);
+      assert.equal(faqHost.querySelector('[role="region"]').textContent, '独立核实。');
+      assert.equal(faqHost.querySelector('[data-slot="faq-answer"]').style.opacity, '');
+      counter.destroy();
+      faq.destroy();
+    });
   } finally {
     // React schedules a final passive cleanup task after synchronous unmount.
     await new Promise(resolve => setTimeout(resolve, 40));

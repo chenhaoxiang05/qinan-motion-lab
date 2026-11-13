@@ -19,6 +19,18 @@
       "upstream_path": "components/ui/grid-reveal.tsx",
       "upstream_sha256": "97de3cb193e4c71e699d7b7d9c6ffb8365591affcba08f36ca8c66e92284244e",
       "registry": "https://www.rareui.com/r/grid-reveal.json"
+    },
+    {
+      "component": "faq",
+      "upstream_path": "components/ui/faq.tsx",
+      "upstream_sha256": "d251534209ea56264067021aaa0b6c94658175cb00999298d76cfd795260d189",
+      "registry": "https://www.rareui.com/r/faq.json"
+    },
+    {
+      "component": "animated-counter",
+      "upstream_path": "components/ui/animated-counter.tsx",
+      "upstream_sha256": "7913a4e43d8ad16ebac5fe4ea2413890866f14b9a0e01f7feec2b912e399906c",
+      "registry": "https://www.rareui.com/r/animated-counter.json"
     }
   ]
 }

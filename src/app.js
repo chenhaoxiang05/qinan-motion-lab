@@ -1,6 +1,7 @@
 import { icon } from './icons.js';
 import { quiz } from './quiz.js';
 import { createWorkspaceTransitions } from './transitions.js';
+import { createWorkspaceDismiss } from './workspace-dismiss.js';
 
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fileTypes = {
@@ -43,17 +44,19 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   let page='home', routeRevision=0, viewController=null, healthController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
+  let practiceCounter=null, practiceFaq=null, practiceFaqValue=null, practiceFaqItems=[], questionSwap=null;
   let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null, feedbackAnimation=null, windowReady=false, modalAnimation=null, modalRevision=0;
   const activeRequests=new Set(), ambientAnimations=[], entranceAnimations=[], pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
   const transitions=createWorkspaceTransitions({
     dialog:workspace,surface:$('.workspace-surface'),backdrop:$('#workspaceBackdrop'),portals:$$('.portal-node'),
     animate,createLayout,motionEnabled,
-    onBusy(){windowReady=false;finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(true);},
+    onBusy(){windowReady=false;finishQuestionSwap();finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(transitions.state!=='closing');},
     onHome(){visual.focus(false);resumeAmbient();},
     onClosed(){windowReady=false;disposeView();body.innerHTML='';},
     onOpened(){windowReady=true;},
   });
+  const exteriorDismiss=createWorkspaceDismiss({dialog:workspace,surface:$('.workspace-surface'),canDismiss:()=>transitions.state==='open'&&!modal.open&&!pickerPending,onDismiss:()=>go('home')});
   const e=escapeHTML;
   const heading=(label,title,desc)=>`<div class="page-heading"><span class="eyebrow">${label}</span><h1>${title}</h1><p>${desc}</p></div>`;
   const wave=()=>`<div class="waveform" aria-hidden="true">${Array.from({length:25},(_,i)=>`<span style="height:${8+Math.sin(i*2.3)**2*33}px;animation-delay:${-i*.11}s"></span>`).join('')}</div>`;
@@ -134,11 +137,13 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   }
   function finishQuizExit(){const exit=quizExit;if(exit){exit.animation?.complete?.();exit.finish();}}
   function finishFeedback(){const animation=feedbackAnimation;feedbackAnimation=null;animation?.cancel?.();const feedback=$('#feedback');if(feedback){feedback.style.opacity='1';feedback.style.transform='none';}}
-  function disposeQuizLayout(){finishFeedback();finishQuizExit();quizLayout?.revert();quizLayout=null;}
+  function disposeQuizLayout(){finishQuestionSwap();finishFeedback();finishQuizExit();quizLayout?.revert();quizLayout=null;}
+  function disposePracticeIslands(){practiceCounter?.destroy();practiceCounter=null;disposePracticeFaq();}
+  function disposePracticeFaq(){practiceFaq?.destroy();practiceFaq=null;}
   function disposeIslands(){
     clearTimeout(pickerReturnTimer);pickerReturnTimer=null;pickerPending=false;dragDepth=0;
     uploadIsland?.destroy();uploadIsland=null;uploadHost=null;
-    statusIsland?.destroy();statusIsland=null;
+    statusIsland?.destroy();statusIsland=null;disposePracticeIslands();
   }
   function disposeView(){disposeQuizLayout();disposeIslands();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
@@ -408,53 +413,119 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     });
   }
 
-  function renderQuiz(){
-    disposeQuizLayout();
-    if(currentQuiz>=quiz.length){
-      body.innerHTML=heading('03 / 练习完成','多练习一次，多一份从容。','你已完成本轮虚构情景练习。')+`<section class="surface question-card"><div class="empty-state">${icon('spark')}<h3>本轮答对 ${correctCount} / ${quiz.length} 题</h3><p>${correctCount===quiz.length?'每一次认真核实，都是对家人的守护。':'记住这些提醒，下次就能多一份警觉。'}</p></div>${mistakes.map(q=>`<div class="question-feedback"><b>${q.title}</b><br>${q.why}</div>`).join('')}<button class="primary" id="restartQuiz">再练一轮 ${icon('refresh')}</button></section>`;
-      $('#restartQuiz').onclick=()=>{currentQuiz=0;answer=null;correctCount=0;mistakes=[];renderQuiz();};return;
+  function counterProps(){return {value:correctCount,paused:!motionEnabled(),label:'已答对',suffix:` / ${quiz.length}`};}
+  function faqProps(){return {items:practiceFaqItems,value:practiceFaqValue,paused:!motionEnabled(),onValueChange(value){practiceFaqValue=value;practiceFaq?.update({value});}};}
+  function refreshPracticeIslands(){
+    const counter=$('#practiceCounter'),faq=$('#practiceFaq');
+    if(counter){
+      if(!practiceCounter&&islands.mountCounter)practiceCounter=islands.mountCounter(counter,counterProps());
+      else if(practiceCounter)practiceCounter.update(counterProps());
+      else counter.innerHTML=`<span class="practice-native-score">${correctCount}<small> / ${quiz.length}</small></span>`;
     }
-    const q=quiz[currentQuiz];
-    body.innerHTML=heading('03 / 情景练习','练一点识别力。','不必成为专家。先停一停，再核实，就是重要的一步。')+
-      `<div class="quiz-queue-label"><span>待完成题目 / QUESTION QUEUE</span><span id="quizRemaining">${quiz.length-currentQuiz-(answer!==null?1:0)} / ${quiz.length}</span></div><div class="quiz-progress" aria-label="待完成题目">${quiz.map((_,i)=>i>=currentQuiz+(answer!==null?1:0)?`<span class="quiz-tile" data-question="${i}">${String(i+1).padStart(2,'0')}</span>`:'').join('')}</div><section class="surface question-card"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span id="scoreCount">已答对 ${correctCount} 题</span></div><div class="progress-track"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2>${q.title}</h2><div class="question-text">${q.text}</div><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((a,i)=>`<button class="answer" data-answer="${i}"><b>${String.fromCharCode(65+i)}</b>${a}</button>`).join('')}</div><div id="feedback"></div></section>`;
-    quizLayout=createLayout?.($('.quiz-progress'),{duration:250,ease:'outQuad',leaveTo:{transform:'translateY(-100px) scale(.25)',opacity:0,duration:350,ease:'out(3)'}});
-    $$('[data-answer]').forEach(button=>button.onclick=()=>{if(answer!==null)return;answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);updateAnswer(q);removeProgressTile();});
+    if(faq){
+      if(!practiceFaq&&islands.mountFaq)practiceFaq=islands.mountFaq(faq,faqProps());
+      else if(practiceFaq)practiceFaq.update(faqProps());
+      else {
+        faq.innerHTML=practiceFaqItems.map(item=>`<details class="practice-native-faq" data-faq="${e(item.id)}" ${practiceFaqValue===item.id?'open':''}><summary>${e(item.question)}</summary><p>${e(item.answer)}</p></details>`).join('');
+        faq.querySelectorAll('details').forEach(detail=>detail.addEventListener('toggle',()=>{if(!detail.isConnected)return;if(detail.open)practiceFaqValue=detail.dataset.faq;else if(practiceFaqValue===detail.dataset.faq)practiceFaqValue=null;}));
+      }
+    }
+  }
+  function quizTickets(){
+    return quiz.map((q,i)=>i>=currentQuiz+(answer!==null?1:0)?`<div class="quiz-tile${i===currentQuiz?' is-current':''}" role="listitem" data-question="${i}" ${i===currentQuiz?'aria-current="step"':''}><span class="ticket-icon">${icon(q.icon)}</span><span class="ticket-index">${String(i+1).padStart(2,'0')}</span><span class="ticket-title">${e(q.shortLabel)}</span></div>`:'').join('');
+  }
+  function renderQuiz(){
+    disposeQuizLayout();disposePracticeIslands();
+    body.innerHTML=`<section class="practice-frame"><header class="practice-header">${heading('03 / 情景练习','先看材料，再做决定。','六个虚构情景。练习在转账、验证码和陌生请求前，多核实一步。')}<div class="practice-score"><span class="practice-score-label">本轮答对</span><div id="practiceCounter"></div><span id="scoreCount">已答对 ${correctCount} 题</span></div></header><div class="practice-queue"><div class="quiz-queue-label"><span>待完成题目 / QUESTION QUEUE</span><span id="quizRemaining">${Math.max(0,quiz.length-currentQuiz-(answer!==null?1:0))} / ${quiz.length}</span></div><div class="quiz-progress" role="list" aria-label="待完成题目">${quizTickets()||'<span class="queue-complete">全部完成 ✓</span>'}</div></div><div id="practiceStage" class="practice-stage"></div></section>`;
+    if(currentQuiz<quiz.length)quizLayout=createLayout?.($('.quiz-progress'),{duration:250,ease:'outQuad',leaveTo:{transform:'translateY(-100px) scale(.25)',opacity:0,duration:350,ease:'out(3)'}});
+    paintQuizQuestion();refreshPracticeIslands();
+  }
+  function materialMedia(q){
+    if(q.materialType==='video')return `<div class="material-media material-video" aria-hidden="true"><div class="media-reticle">${icon('video')}<span class="media-frame-corner"></span></div><span class="media-caption">视频情景 · 静态示意</span></div>`;
+    if(q.materialType==='audio')return `<div class="material-media material-audio" aria-hidden="true"><div class="media-wave">${Array.from({length:24},(_,i)=>`<i style="height:${10+Math.sin(i*1.7)**2*28}px"></i>`).join('')}</div><span class="media-caption">语音情景 · 文字转述</span></div>`;
+    if(q.materialType==='call')return `<div class="material-media material-call" aria-hidden="true">${icon('phone')}<span class="media-caption">来电情景 · 文字转述</span><span class="call-line"></span></div>`;
+    return '';
+  }
+  function paintQuizQuestion(){
+    const stage=$('#practiceStage');if(!stage)return;
+    disposePracticeFaq();practiceFaqItems=[];
+    if(currentQuiz>=quiz.length){paintQuizResult();return;}
+    const q=quiz[currentQuiz];stage.classList.remove('is-complete');
+    stage.innerHTML=`<article id="practiceMaterial" class="practice-material surface" aria-label="虚构情景材料"><div class="material-topline"><span class="material-type">${icon(q.icon)}${e(q.materialLabel)}</span><span class="fiction-badge">虚构情景</span></div><div class="material-sender"><span class="sender-avatar" aria-hidden="true">${icon(q.icon)}</span><div><strong class="sender-name">${e(q.sender)}</strong><span class="sender-meta">${e(q.senderMeta)}</span></div></div>${materialMedia(q)}<div class="material-body">${q.bodySegments.map(segment=>`<span class="material-segment${segment.clue?' case-clue':''}"${segment.clue?` data-clue="${e(segment.clue)}"`:''}>${e(segment.text)}</span>`).join('')}</div><div id="materialClues" class="material-clues" hidden></div><footer class="material-note case-file-footer"><span>CASE ${String(currentQuiz+1).padStart(2,'0')} / ${quiz.length}</span><span>${['video','audio','call'].includes(q.materialType)?'情景转述 · 非真实通话':'教学示例 · 不是真实消息'}</span></footer></article><section id="practiceAction" class="practice-action surface question-card" aria-labelledby="questionTitle"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span>独立核实</span></div><div class="progress-track" aria-hidden="true"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2 id="questionTitle" tabindex="-1">${e(q.title)}</h2><p class="question-text">先阅读材料，再选择你会采取的一步。</p><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((choice,i)=>`<button class="answer" data-answer="${i}"><b aria-hidden="true">${String.fromCharCode(65+i)}</b><span class="answer-copy">${e(choice)}<span class="answer-status"></span></span></button>`).join('')}</div><div id="feedback"></div></section>`;
+    $$('[data-answer]').forEach(button=>button.onclick=()=>{
+      if(answer!==null||questionSwap)return;
+      answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);
+      updateAnswer(q);removeProgressTile();
+    });
+    $$('.quiz-tile').forEach(tile=>{const active=+tile.dataset.question===currentQuiz;tile.classList.toggle('is-current',active);if(active)tile.setAttribute('aria-current','step');else tile.removeAttribute('aria-current');});
     if(answer!==null)updateAnswer(q,false);
+  }
+  function paintQuizResult(){
+    const stage=$('#practiceStage');stage.classList.add('is-complete');
+    const wrongIds=new Set(mistakes.map(q=>q.id)),ordered=[...mistakes,...quiz.filter(q=>!wrongIds.has(q.id))];
+    practiceFaqItems=ordered.map(q=>({...q.reviewQA,question:`${wrongIds.has(q.id)?'再留意':'已掌握'} · ${q.shortLabel}：${q.reviewQA.question}`}));
+    stage.innerHTML=`<section class="practice-result surface"><span class="eyebrow">本轮完成 / SESSION COMPLETE</span><h2 id="questionTitle" tabindex="-1">${correctCount===quiz.length?'六次停顿，六次正确决定。':'再核实一步，就更从容。'}</h2><p class="practice-result-score">本轮答对 <strong>${correctCount} / ${quiz.length}</strong> 题</p><p>${mistakes.length?`有 ${mistakes.length} 个情景值得再看一次。先回顾这些提醒，再把核实变成习惯。`:'这一轮全部答对。六条核实提醒都在下面，遇到相似情况时可以再看一遍。'}</p><span class="fiction-badge">虚构情景练习 · 不代表真实检测能力</span><button class="primary" id="restartQuiz">再练一轮 ${icon('refresh')}</button></section><section class="practice-review-list surface"><span class="eyebrow">${mistakes.length?'先回顾答错的情景':'六条核实提醒'}</span><h3>把判断变成行动。</h3><div id="practiceFaq" class="practice-faq"></div></section>`;
+    $('#restartQuiz').onclick=()=>{currentQuiz=0;answer=null;correctCount=0;mistakes=[];practiceFaqValue=null;renderQuiz();$('#questionTitle')?.focus({preventScroll:true});};
   }
   function removeProgressTile(){
     const tile=$(`[data-question="${currentQuiz}"]`);if(!tile)return;
-    const layout=quizLayout,progress=tile.parentElement,next=$('#nextQuestion');if(next)next.disabled=true;
+    const layout=quizLayout,progress=tile.parentElement,next=$('#nextQuestion'),remaining=quiz.length-currentQuiz-1;if(next)next.disabled=true;
     let finished=false;
     const finish=()=>{
       if(finished)return;finished=true;
       if(quizExit?.tile===tile){clearTimeout(quizExit.timer);quizExit=null;}
       tile.remove();
-      if($('#quizRemaining'))$('#quizRemaining').textContent=`${quiz.length-currentQuiz-1} / ${quiz.length}`;if(next?.isConnected)next.disabled=false;
-      if(progress.isConnected&&!progress.querySelector('.quiz-tile'))progress.textContent='全部完成 ✓';
+      if($('#quizRemaining'))$('#quizRemaining').textContent=`${remaining} / ${quiz.length}`;if(next?.isConnected)next.disabled=false;
+      if(progress.isConnected&&!progress.querySelector('.quiz-tile'))progress.innerHTML='<span class="queue-complete">全部完成 ✓</span>';
     };
     if(motionEnabled()&&layout){
       const exit={tile,finish,animation:null,timer:setTimeout(()=>{exit.animation?.complete?.();finish();},850)};quizExit=exit;
-      try{
-        exit.animation=layout.update(()=>tile.classList.add('is-hidden'),{onComplete:finish});
-        if(exit.animation?.completed)finish();
-      }catch{finish();}
+      try{exit.animation=layout.update(()=>tile.classList.add('is-hidden'),{onComplete:finish});if(exit.animation?.completed)finish();}catch{finish();}
     }else finish();
   }
   function updateAnswer(q,shouldAnimate=true){
-    finishFeedback();
+    finishFeedback();disposePracticeFaq();
     $$('[data-answer]').forEach(button=>{
       const i=+button.dataset.answer;button.disabled=true;
       button.classList.toggle('correct',i===q.correct);button.classList.toggle('wrong',i===answer&&i!==q.correct);
       button.querySelector('b').textContent=i===q.correct?'✓':i===answer?'✕':String.fromCharCode(65+i);
+      button.querySelector('.answer-status').textContent=i===q.correct?(i===answer?'你的选择 · 建议做法':'建议做法'):i===answer?'你的选择':'';
     });
     $('#scoreCount').textContent=`已答对 ${correctCount} 题`;
     $('.progress-track span').style.width=`${(currentQuiz+1)/quiz.length*100}%`;
-    $('#feedback').innerHTML=`<div class="question-feedback" role="status"><b>${answer===q.correct?'✓ 这一步，让安心更近了。':'✕ 再多核实一步，会更稳妥。'}</b><br>${q.why}</div><button id="nextQuestion" class="primary">${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}</button>`;
+    $$('.material-segment[data-clue]').forEach(segment=>segment.classList.add('is-clue'));
+    const clues=$('#materialClues');clues.hidden=false;clues.innerHTML=`<span class="clues-label">值得留意的线索</span>${q.keyClues.map(clue=>`<span class="clue-label">${e(clue.label)}</span>`).join('')}`;
+    practiceFaqItems=[q.reviewQA];
+    $('#feedback').innerHTML=`<div class="question-feedback ${answer===q.correct?'is-correct':'is-wrong'}" role="status"><b>${answer===q.correct?'✓ 这一步，让安心更近了。':'✕ 再多核实一步，会更稳妥。'}</b><p>${e(q.why)}</p></div><div id="practiceFaq" class="practice-faq"></div><button id="nextQuestion" class="primary">${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}</button>`;
+    refreshPracticeIslands();
     if(shouldAnimate&&windowReady&&motionEnabled()){
-      const feedback=$('#feedback');
-      feedbackAnimation=animate(feedback,{y:[10,0],opacity:[0,1],duration:300,ease:'outQuad',onComplete:()=>{feedback.style.opacity='1';feedback.style.transform='none';feedbackAnimation=null;}});
+      const feedback=$('#feedback');let completed=false;
+      try{const animation=animate(feedback,{y:[10,0],opacity:[0,1],duration:300,ease:'outQuad',onComplete:()=>{completed=true;feedback.style.opacity='1';feedback.style.transform='none';feedbackAnimation=null;}});if(!completed)feedbackAnimation=animation;}catch{finishFeedback();}
     }
-    $('#nextQuestion').onclick=()=>{currentQuiz++;answer=null;renderQuiz();body.scrollTop=0;};
+    $('#nextQuestion').onclick=nextQuizQuestion;
+  }
+  function finishQuestionSwap(){
+    const swap=questionSwap;if(!swap)return;
+    swap.animation?.cancel?.();swap.commit();swap.finish(false);
+  }
+  function nextQuizQuestion(){
+    if(answer===null||quizExit||questionSwap)return;
+    finishFeedback();
+    const stage=$('#practiceStage');if(!stage)return;
+    const swap={animation:null,timer:null,phase:'out',committed:false,
+      commit(){if(questionSwap!==swap||swap.committed)return;swap.committed=true;currentQuiz++;answer=null;practiceFaqValue=null;paintQuizQuestion();refreshPracticeIslands();const stageRect=stage.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();if(stageRect.top<bodyRect.top||stageRect.top>bodyRect.bottom-100)body.scrollTop=Math.max(0,body.scrollTop+stageRect.top-bodyRect.top-12);},
+      finish(focus=true){if(questionSwap!==swap)return;clearTimeout(swap.timer);questionSwap=null;stage.style.opacity='1';stage.style.transform='none';stage.removeAttribute('aria-busy');if(focus&&page==='practice'&&windowReady)$('#questionTitle')?.focus({preventScroll:true});}
+    };
+    questionSwap=swap;stage.setAttribute('aria-busy','true');$('#nextQuestion').disabled=true;
+    if(!motionEnabled()||!windowReady){swap.commit();swap.finish();return;}
+    swap.timer=setTimeout(()=>finishQuestionSwap(),650);
+    try{
+      const animation=animate(stage,{opacity:[1,.16],y:[0,-8],duration:150,ease:'inQuad',onComplete:()=>{
+        if(questionSwap!==swap)return;swap.commit();swap.phase='in';
+        try{const entrance=animate(stage,{opacity:[.16,1],y:[8,0],duration:150,ease:'outQuad',onComplete:()=>swap.finish()});if(questionSwap===swap)swap.animation=entrance;}catch{swap.finish();}
+      }});
+      if(questionSwap===swap&&swap.phase==='out')swap.animation=animation;
+    }catch{finishQuestionSwap();}
   }
 
   function updateHistoryHint(){$('#historyHint').textContent=records.length?`${records.length} 次演示，记录在这里`:'每一步，都算数';}
@@ -522,8 +593,8 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     document.body.classList.toggle('motion-off',paused||mediaQuery.matches);
     $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
     $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
-    updateUploadIsland();statusIsland?.update(taskStatusProps());
-    if(!motionEnabled()){settleModal();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
+    updateUploadIsland();statusIsland?.update(taskStatusProps());practiceCounter?.update(counterProps());practiceFaq?.update({paused:!motionEnabled()});
+    if(!motionEnabled()){settleModal();finishQuestionSwap();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
   }
   function toggleMotion(){paused=!paused;setStored('qinan-motion-paused',String(paused));syncMotion();}
   const motionChange=()=>{paused=mediaQuery.matches||getStored('qinan-motion-paused','false')==='true';syncMotion();};mediaQuery.addEventListener('change',motionChange);
@@ -573,7 +644,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   const afterPrint=()=>{$$('.report-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    refreshIslands(){if(!destroyed&&!startupPending&&page==='check'){if(activeTask)renderProcessing();else renderFile();}},
-    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);transitions.destroy();disposeQuizLayout();disposeIslands();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    refreshIslands(){if(destroyed||startupPending)return;if(page==='check'){if(activeTask)renderProcessing();else renderFile();}else if(page==='practice')refreshPracticeIslands();},
+    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

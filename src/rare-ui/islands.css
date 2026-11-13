@@ -40,11 +40,26 @@
 .rare-island .qi-status [data-slot="ai-status-label"] { color:var(--qi-paper); }
 .rare-island .qi-status [data-slot="ai-status-label"] > span { --ai-status-ink:#c6d0bd; --ai-status-shine:#f6ffe8; }
 .rare-island .qi-status [data-slot="ai-status-detail"] { color:var(--qi-muted); }
+.rare-island .qi-counter { display:inline-block; color:var(--qi-paper); }
+.rare-island .qi-counter-readable { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.rare-island .qi-counter-visual { display:inline-flex; align-items:center; gap:.45em; font-variant-numeric:tabular-nums; }
+.rare-island .qi-counter-label { color:var(--qi-muted); font-size:.7em; }
+.rare-island .qi-counter-number { color:var(--qi-acid); font-weight:650; }
+.rare-island .qi-counter-suffix { color:var(--qi-muted); font-size:.7em; white-space:pre; }
+.rare-island .qi-faq { width:100%; color:var(--qi-paper); }
+.rare-island .qi-faq [data-slot="faq"] { max-width:none; gap:12px; }
+.rare-island .qi-faq [data-slot="faq-question"] { max-width:92%; min-height:44px; padding:12px 16px; border:1px solid #ffffff26; border-radius:3px; background:#ffffff06; color:var(--qi-paper); font-size:14px; line-height:1.6; text-align:left; box-shadow:none; overflow-wrap:anywhere; }
+.rare-island .qi-faq [data-slot="faq-question"]::before { content:'+'; display:inline-block; width:1em; margin-right:8px; color:var(--faq-accent,var(--qi-acid)); }
+.rare-island .qi-faq [data-slot="faq-question"][aria-expanded="true"] { border-color:#c2ff0066; background:#c2ff000a; }
+.rare-island .qi-faq [data-slot="faq-question"][aria-expanded="true"]::before { content:'−'; }
+.rare-island .qi-faq [data-slot="faq-answer"] { min-width:0; }
+.rare-island .qi-faq [data-slot="faq-answer"] [role="region"] { max-width:92%; padding:16px 18px; border:1px solid #c2ff0033; border-left:2px solid var(--faq-accent,var(--qi-acid)); border-radius:3px; background:#151b0f; color:var(--qi-paper); font-size:14px; line-height:1.8; white-space:pre-line; overflow-wrap:anywhere; }
 @media(max-width:680px) {
   .rare-island .qi-upload-selected { grid-template-columns:1fr; gap:16px; }
   .rare-island .qi-selected-file { border-left:0; border-top:1px solid #ffffff26; padding:20px 0 0; }
   .rare-island .qi-folder-trigger { padding-inline:0; }
   .rare-island .qi-status [data-slot="ai-status-detail"] { display:none; }
+  .rare-island .qi-faq [data-slot="faq-question"], .rare-island .qi-faq [data-slot="faq-answer"] [role="region"] { max-width:100%; }
 }
 
 @container rare-upload (max-width:600px) {
