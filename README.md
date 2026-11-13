@@ -47,6 +47,10 @@ npm run build
 
 ## 历史版本
 
+[完整版本说明与源码下载](docs/VERSIONS.md) · [GitHub Releases](https://github.com/chenhaoxiang05/qinan-motion-lab/releases)
+
+每个版本固定到原始提交，并附当时的说明和源码压缩包。当前推荐开发入口为 v14；历史版本保留用于对比，不代表已完成真实后端或真机验收。
+
 | 版本 | Git 入口 |
 | --- | --- |
 | 初版 | `v1.0.0` |
