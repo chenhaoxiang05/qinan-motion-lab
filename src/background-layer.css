@@ -1,0 +1,38 @@
+/* The static composition remains when the optional 3D scene cannot load. */
+.stage-background { z-index: 0; background: #080908; isolation: isolate; }
+.stage-background::before {
+  content: ''; position: absolute; left: 35%; top: 11%; width: 58%; height: 65%;
+  background: #10150d;
+  clip-path: polygon(0 14%,75% 0,100% 22%,100% 86%,24% 100%,0 77%);
+  opacity: .94; pointer-events: none;
+}
+.stage-background::after {
+  content: ''; position: absolute; inset: auto -4% 9% 44%; height: 22%; margin: 0; border: 0;
+  background: #11160f;
+  clip-path: polygon(0 0,79% 0,100% 60%,100% 100%,18% 100%);
+  pointer-events: none;
+}
+.stage-background .field-axis-x {
+  top: 10%; right: -3%; left: 62%; height: 17%; width: auto;
+  background: #192014;
+  clip-path: polygon(20% 0,100% 0,100% 100%,0 100%);
+}
+.stage-background .field-axis-y {
+  top: 29%; bottom: 24%; left: 66%; width: 25%; height: auto;
+  background-color: transparent;
+  background-image: linear-gradient(#99ac6b0c 1px,transparent 1px),linear-gradient(90deg,#99ac6b0c 1px,transparent 1px);
+  background-size: 24px 24px;
+  clip-path: polygon(0 0,100% 12%,100% 100%,0 90%);
+}
+/* A render failure must leave these flat panels visible behind the local SVG. */
+#world .scene-fallback { background: transparent !important; }
+@media (max-width: 999px) {
+  .stage-background::before { left: 10%; top: 32%; width: 105%; height: 46%; opacity: .72; }
+  .stage-background::after { left: 74%; right: -20%; bottom: 18%; height: 20%; opacity: .5; }
+  .stage-background .field-axis-x { display: none; }
+  .stage-background .field-axis-y { left: 75%; top: 38%; bottom: 25%; width: 25%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-background,.stage-background::before,.stage-background::after,.stage-background .field-axis { animation: none; transition: none; }
+}
+@media print { .stage-background { display: none !important; } }

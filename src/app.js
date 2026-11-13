@@ -2,6 +2,7 @@ import { icon } from './icons.js';
 import { quiz } from './quiz.js';
 import { createWorkspaceTransitions } from './transitions.js';
 import { createWorkspaceDismiss } from './workspace-dismiss.js';
+import { createApiClient } from './api-client.js';
 
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fileTypes = {
@@ -17,7 +18,8 @@ export function moduleResult(module) {
   const scores = [];
   if (Number.isFinite(module.score)) scores.push({score:module.score,threshold});
   for (const segment of Array.isArray(module.segments) ? module.segments : []) {
-    if (Number.isFinite(segment.score)) scores.push({score:segment.score,threshold:Number.isFinite(segment.threshold)?segment.threshold:threshold});
+    const segmentThreshold=Number.isFinite(segment?.threshold)?segment.threshold:threshold;
+    if (Number.isFinite(segment?.score)) scores.push({score:segment.score,threshold:segmentThreshold});
   }
   const secondary = module.secondary_check;
   if (secondary && Number.isFinite(secondary.score) && Number.isFinite(secondary.threshold)) scores.push(secondary);
@@ -27,7 +29,7 @@ export function moduleResult(module) {
   return {status:'below',threshold};
 }
 
-export function initApp({animate,utils,createSpring,createLayout,visual,islands={},startReady=null,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
+export function initApp({animate,utils,createSpring,createLayout,visual,islands={},homeMotion={},apiBase=import.meta.env?.VITE_API_BASE_URL||'/api',startReady=null,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
   const body = $('#workspaceBody'), workspace = $('#workspace'), modal = $('#modal');
@@ -36,30 +38,29 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   if($('.mini-signal'))$('.mini-signal').innerHTML=Array.from({length:10},(_,i)=>`<i style="height:${7+Math.sin(i*1.8)**2*15}px;animation-delay:${-i*.15}s"></i>`).join('');
   const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let paused = getStored('qinan-motion-paused','false') === 'true' || mediaQuery.matches;
-  let realMode = getStored('qinan-real-mode','false') === 'true';
+  const api=createApiClient({baseUrl:apiBase,fetchImpl:(...args)=>window.fetch(...args)});
   let contacts = readArray('qinan-contacts').filter(c=>c && typeof c.name==='string' && typeof c.phone==='string');
-  let records = readArray('qinan-demo-history').filter(r=>r && typeof r.id==='string' && r.demo);
+  const legacyRecords = readArray('qinan-demo-history').filter(r=>r && typeof r.id==='string' && r.demo);
   let destroyed=false, startupPending=!!startReady;
   let uploadIsland=null, uploadHost=null, statusIsland=null, pickerPending=false, pickerReturnTimer=null, dragDepth=0;
-  let page='home', routeRevision=0, viewController=null, healthController=null;
+  let page='home', routeRevision=0, viewController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
   let practiceCounter=null, practiceFaq=null, practiceFaqValue=null, practiceFaqItems=[], questionSwap=null, practiceDock=null;
   let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null, feedbackAnimation=null, windowReady=false, modalAnimation=null, modalRevision=0;
-  const activeRequests=new Set(), ambientAnimations=[], entranceAnimations=[], pointerDisposers=[];
+  const pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
   const transitions=createWorkspaceTransitions({
     dialog:workspace,surface:$('.workspace-surface'),backdrop:$('#workspaceBackdrop'),portals:$$('.portal-node'),
     animate,createLayout,motionEnabled,
     onBusy(){windowReady=false;finishQuestionSwap();updatePracticeDock();finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(transitions.state!=='closing');},
-    onHome(){visual.focus(false);resumeAmbient();},
+    onHome(){visual.focus(false);},
     onClosed(){windowReady=false;disposeView();body.innerHTML='';},
     onOpened(){windowReady=true;},
   });
   const exteriorDismiss=createWorkspaceDismiss({dialog:workspace,surface:$('.workspace-surface'),canDismiss:()=>transitions.state==='open'&&!modal.open&&!pickerPending,onDismiss:()=>go('home')});
   const e=escapeHTML;
   const heading=(label,title,desc)=>`<div class="page-heading"><span class="eyebrow">${label}</span><h1>${title}</h1><p>${desc}</p></div>`;
-  const wave=()=>`<div class="waveform" aria-hidden="true">${Array.from({length:25},(_,i)=>`<span style="height:${8+Math.sin(i*2.3)**2*33}px;animation-delay:${-i*.11}s"></span>`).join('')}</div>`;
 
   function getStored(key,fallback,storage='localStorage') {try{return window[storage].getItem(key)??fallback;}catch{return fallback;}}
   function setStored(key,value,storage='localStorage') {try{window[storage].setItem(key,value);return true;}catch{return false;}}
@@ -104,32 +105,22 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   document.addEventListener('visibilitychange',modalVisibility);
   modal.addEventListener('click',ev=>{if(ev.target===modal){const r=modal.getBoundingClientRect();if(ev.clientX<r.left||ev.clientX>r.right||ev.clientY<r.top||ev.clientY>r.bottom)closeModal();}});
 
-  async function request(url,options={},signal=null,timeout=25000){
-    const controller=new AbortController();activeRequests.add(controller);
-    const onAbort=()=>controller.abort();
-    if(signal?.aborted)controller.abort();else signal?.addEventListener('abort',onAbort,{once:true});
-    const timer=setTimeout(()=>controller.abort('timeout'),timeout);
-    try{
-      const response=await window.fetch(url,{...options,signal:controller.signal});
-      if(!response.ok)throw new Error('服务暂时没有响应，请检查连接后重试。');
-      return await response.json();
-    }catch(error){
-      if(signal?.aborted)throw new DOMException('页面已切换','AbortError');
-      if(controller.signal.aborted)throw new Error('等待服务响应超时，请稍后重试。');
-      if(error instanceof TypeError || error instanceof SyntaxError)throw new Error('暂时无法连接检测服务，请确认后端已启动。');
-      throw error;
-    }finally{clearTimeout(timer);activeRequests.delete(controller);signal?.removeEventListener('abort',onAbort);}
+  const request=(path,options={},signal=null,timeout=25000)=>api.request(path,options,signal,timeout);
+  function pendingJob(){
+    const raw=getStored('qinan-active-task','','sessionStorage');
+    if(raw){try{const task=JSON.parse(raw);if(task&&typeof task.id==='string'&&task.source===api.source)return task.id;}catch{/* Ignore malformed session state. */}return '';}
+    return api.baseUrl==='/api'?getStored('qinan-active-job','','sessionStorage'):'';
   }
-  async function updateMode(){
-    healthController?.abort();healthController=new AbortController();
-    const controller=healthController;
-    $('#modeLabel').textContent=realMode?'正在连接…':'交互演示';
-    if(!realMode)return;
-    try{
-      const health=await request('/api/health',{},controller.signal);
-      if(controller.signal.aborted||!realMode)return;
-      $('#modeLabel').textContent=health.models?.audio&&health.models?.video?'模型已就绪':'部分模型未就绪';
-    }catch{if(!controller.signal.aborted&&realMode)$('#modeLabel').textContent='后端未连接';}
+  function savePendingJob(id){
+    if(setStored('qinan-active-task',JSON.stringify({id,source:api.source}),'sessionStorage'))removeStored('qinan-active-job','sessionStorage');
+  }
+  function clearPendingJob(id){
+    if(pendingJob()!==id)return;
+    removeStored('qinan-active-task','sessionStorage');removeStored('qinan-active-job','sessionStorage');
+  }
+  function reportFromResponse(data){
+    if(!data||typeof data!=='object'||Array.isArray(data)||typeof data.id!=='string'||!data.id)throw new Error('这份报告暂时无法读取，请稍后重试。');
+    return {...data,demo:false};
   }
 
   function go(next){
@@ -161,7 +152,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       disposeView();
       $('#workspaceTitle').textContent=pages[target][0];$('#sectionNumber').textContent=pages[target][1];
       if(target==='report'){
-        const saved=records.find(r=>r.id===reportId);
+        const saved=legacyRecords.find(r=>r.id===reportId);
         if(saved)currentReport=saved;
         if(!currentReport||reportId&&currentReport.id!==reportId)renderReportFromId(reportId,revision);
         else renderReport();
@@ -177,11 +168,11 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   function renderCheck(){
     if(activeTask){renderProcessing();return;}
     disposeIslands();
-    const recoverable=realMode&&getStored('qinan-active-job','', 'sessionStorage');
+    const recoverable=pendingJob();
     body.innerHTML=heading('01 / 材料核验','把疑问交给亲安。','一段声音，一张照片，一条消息。先核实，再放心。')+
       `${recoverable?`<div class="notice mode-notice">上次的任务仍可继续查看，不需要重复上传。<button id="resumeTask" class="text-button">恢复查看 ↗</button></div>`:''}`+
-      `<div class="upload-layout"><section class="surface upload-card"><div class="type-tabs" role="tablist" aria-label="选择材料类型"><span class="tab-marker" aria-hidden="true"></span>${Object.entries(fileTypes).map(([key,t])=>`<button class="type-tab" id="type-${key}" role="tab" aria-controls="uploadPanel" aria-selected="${type===key}" tabindex="${type===key?0:-1}" data-type="${key}">${icon(t.icon)}${t.label}</button>`).join('')}</div><div id="uploadPanel" role="tabpanel" aria-labelledby="type-${type}"><div id="dropzone" class="dropzone"></div><p id="fileError" class="inline-error" role="alert"></p><div class="upload-meta"><span>${icon('lock')}${realMode?'原始材料处理后删除':'本地演示 · 文件不会上传'}</span><button id="analyzeButton" class="primary" disabled>${realMode?'开始核验':'体验核验'} ${icon('arrow')}</button></div></div></section><aside class="safety-card"><div class="safety-top">A GENTLE REMINDER ${icon('heart')}</div><h2>真正的关心，<br>经得起一次<span>确认。</span></h2><p>遇到借钱、转账或索要验证码，<br>先停一停，用熟悉的号码联系家人。</p><button id="familyLink" class="family-link">${icon('phone')} 联系我的家人 ${icon('arrow')}</button></aside></div><div class="hint-line"><span>${realMode?'检测结果提供线索，不能证明身份。':'当前为交互演示，报告会清楚标注为虚构示例。'}</span><button id="sampleButton" class="text-button">没有材料？试试示例 ${icon('arrow')}</button></div><div class="steps-strip"><span><b>01 /</b> 选择材料</span><i></i><span><b>02 /</b> 看懂线索</span><i></i><span><b>03 /</b> 独立核实</span></div>`;
-    $('#familyLink').onclick=()=>go('contacts');$('#sampleButton').onclick=demoModal;$('#analyzeButton').onclick=analyze;
+      `<div class="upload-layout"><section class="surface upload-card"><div class="type-tabs" role="tablist" aria-label="选择材料类型"><span class="tab-marker" aria-hidden="true"></span>${Object.entries(fileTypes).map(([key,t])=>`<button class="type-tab" id="type-${key}" role="tab" aria-controls="uploadPanel" aria-selected="${type===key}" tabindex="${type===key?0:-1}" data-type="${key}">${icon(t.icon)}${t.label}</button>`).join('')}</div><div id="uploadPanel" role="tabpanel" aria-labelledby="type-${type}"><div id="dropzone" class="dropzone"></div><p id="fileError" class="inline-error" role="alert"></p><div class="upload-meta"><span>${icon('lock')}提交后开始核验</span><button id="analyzeButton" class="primary" disabled>开始核验 ${icon('arrow')}</button></div></div></section><aside class="safety-card"><div class="safety-top">A GENTLE REMINDER ${icon('heart')}</div><h2>真正的关心，<br>经得起一次<span>确认。</span></h2><p>遇到借钱、转账或索要验证码，<br>先停一停，用熟悉的号码联系家人。</p><button id="familyLink" class="family-link">${icon('phone')} 联系我的家人 ${icon('arrow')}</button></aside></div><div class="hint-line"><span>一次一份材料，结果保存在核验记录中。</span><button id="uploadHelp" class="text-button">了解核验流程 ${icon('arrow')}</button></div><div class="steps-strip"><span><b>01 /</b> 选择材料</span><i></i><span><b>02 /</b> 看懂线索</span><i></i><span><b>03 /</b> 独立核实</span></div>`;
+    $('#familyLink').onclick=()=>go('contacts');$('#uploadHelp').onclick=helpModal;$('#analyzeButton').onclick=analyze;
     if($('#resumeTask'))$('#resumeTask').onclick=()=>resumeJob(recoverable);
     $$('.type-tab').forEach(tab=>{
       tab.onclick=()=>selectType(tab.dataset.type);
@@ -329,19 +320,15 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     }
   }
 
-  function demoModal(){
-    openModal(`<span class="modal-eyebrow">TRY A LITTLE PEACE OF MIND</span><h2 id="modalTitle">从一次核实，开始。</h2><p>如果收到“家人”发来的借钱语音，你会怎么做？<br>跟随这个虚构情景，看看亲安如何提供核实方向。</p><div class="sample-card">${icon('sound')}<div><h3>“妈，我换号码了，急用一笔钱…”</h3><small>虚构情景 · 交互演示</small></div>${wave()}</div><p>示例报告展示交互过程，不是实际检测结果。</p><div class="modal-actions"><button id="runDemo" class="primary" ${activeTask?'disabled':''}>${activeTask?'正在核验…':'体验核验过程'} ${icon('arrow')}</button><button id="demoHelp" class="text-button">了解操作</button></div>`);
-    $('#runDemo').onclick=()=>{closeModal();startDemo('亲人求助语音 · 虚构示例',true);};$('#demoHelp').onclick=helpModal;
-  }
   function renderProcessing(){
     if(!activeTask)return;
     disposeIslands();
-    body.innerHTML=heading('正在核验','先别着急，我们一起看看。','核验提供线索，身份仍需使用熟悉的号码再次确认。')+
-      `<section class="surface empty-state"><div class="loading-scan">${icon('scan')}</div><span class="report-badge">${activeTask.demo?'演示流程 · 非真实检测':'实际检测任务'}</span><h3 id="progressTitle">${e(activeTask.message)}</h3><p>${activeTask.demo?'所选文件留在浏览器中，下方将展示虚构的交互示例。':'材料正在由后端处理，离开这个窗口不会取消服务器检测。'}</p><div id="taskStatus" class="task-status"></div><button id="leaveTask" class="text-button">先回安心空间 ↗</button></section>`;
+    body.innerHTML=heading('材料核验','正在整理这份材料。','结果会保存在核验记录中。')+
+      `<section class="surface empty-state"><div class="loading-scan">${icon('scan')}</div><h3 id="progressTitle">${e(activeTask.message)}</h3><p>${e(activeTask.name||'你可以先浏览其他内容，任务会继续处理。')}</p><div id="taskStatus" class="task-status"></div><button id="leaveTask" class="text-button">返回主页 ↗</button></section>`;
     if(islands.mountStatus)statusIsland=islands.mountStatus($('#taskStatus'),taskStatusProps());
     $('#leaveTask').onclick=()=>go('home');
   }
-  function taskStatusProps(){return {state:activeTask?.state||'thinking',label:activeTask?.message||'',detail:activeTask?.demo?'交互演示 · 未分析所选文件':'真实后端任务',paused:!motionEnabled()};}
+  function taskStatusProps(){return {state:activeTask?.state||'thinking',label:activeTask?.message||'',detail:activeTask?.id?'材料已提交':'正在连接核验服务',paused:!motionEnabled()};}
   function taskMessage(message,state='analyzing'){
     if(!activeTask)return;activeTask.message=message;activeTask.state=state;
     if(page==='check'&&$('#progressTitle'))$('#progressTitle').textContent=message;
@@ -349,42 +336,47 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   }
   function openReport(report){currentReport=report;go(`report/${encodeURIComponent(report.id)}`);}
   function completeTask(result){
-    activeTask=null;
-    if(result.demo){records=[result,...records].slice(0,30);saveArray('qinan-demo-history',records);updateHistoryHint();}
-    if(page==='check')openReport(result);else toast('核验已完成，可以在核验记录中查看。');
-  }
-  async function startDemo(name,example=false){
-    if(activeTask)return;
-    activeTask={demo:true,name,state:'thinking',message:'正在展示核验流程…'};go('check');
-    for(const [message,state] of [['正在展示声音线索…','analyzing'],['正在整理独立核实建议…','writing'],['演示报告已准备好','done']]){await delay(850);if(destroyed)return;taskMessage(message,state);}
-    completeTask({id:`demo-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,name,date:new Date().toISOString(),demo:true,example});
+    activeTask=null;currentReport=result;
+    if(page==='check')openReport(result);else toast('核验已完成，可在核验记录中查看。');
   }
   async function analyze(){
     if(activeTask||!selectedFile||validating)return;
-    if(!realMode){startDemo(selectedFile.name);return;}
-    activeTask={demo:false,state:'loading',message:'正在提交材料…'};renderProcessing();
+    fileError='';activeTask={name:selectedFile.name,state:'loading',message:'正在提交材料…'};renderProcessing();
     const data=new FormData();data.append('file',selectedFile);data.append('scene',type==='chat'?'chat':'general');data.append('context','');
     try{
-      const job=await request('/api/analyze',{method:'POST',body:data},null,60000);
+      const job=await request('/analyze',{method:'POST',body:data},null,60000);
       if(destroyed)return;
-      if(!job.job_id)throw new Error('服务没有返回任务编号，请检查接口。');
-      setStored('qinan-active-job',job.job_id,'sessionStorage');
-      taskMessage('材料已提交，等待后端检测结果…','analyzing');
-      await pollJob(job.job_id);
-    }catch(error){if(!destroyed)taskFailed(error.message);}
+      if(!job||typeof job.job_id!=='string'||!job.job_id)throw new Error('未收到任务编号，请先查看核验记录后再重试。');
+      activeTask.id=job.job_id;savePendingJob(job.job_id);
+      taskMessage('材料已提交，正在核验…');await pollJob(job.job_id);
+    }catch(error){if(!destroyed)taskFailed(error.code==='timeout'&&!activeTask?.id?'提交超时，请先查看核验记录后再重试。':error.message);}
   }
   function taskFailed(message){activeTask=null;fileError=message;if(page==='check')renderCheck();else toast(message);}
-  async function resumeJob(id){if(activeTask)return;activeTask={demo:false,state:'loading',message:'正在恢复上次的核验…'};renderProcessing();try{await pollJob(id);}catch(error){if(!destroyed)taskFailed(error.message);}}
+  async function resumeJob(id){
+    if(activeTask||id!==pendingJob())return;
+    activeTask={id,state:'loading',message:'正在恢复核验进度…'};renderProcessing();
+    try{await pollJob(id);}catch(error){if(!destroyed)taskFailed(error.message);}
+  }
   async function pollJob(id){
     let failures=0;
     for(let i=0;i<800;i++){
       await delay(1500);if(destroyed)return;let job;
-      try{job=await request(`/api/jobs/${encodeURIComponent(id)}`);failures=0;}catch{if(destroyed)return;if(++failures>=3)throw new Error('连接暂时中断，任务编号已保留。可稍后恢复查看，无需重新上传。');continue;}
-      taskMessage(job.message||'正在等待后端检测结果…');
-      if(job.status==='failed'){removeStored('qinan-active-job','sessionStorage');throw new Error(job.error||job.message||'本次检查未能完成。');}
-      if(job.status==='completed'&&job.result){removeStored('qinan-active-job','sessionStorage');completeTask({...job.result,demo:false});return;}
+      try{job=await request(`/jobs/${encodeURIComponent(id)}`);failures=0;}
+      catch(error){
+        if(destroyed)return;
+        if(error.status===404){clearPendingJob(id);throw new Error('这项任务已无法恢复，请先查看核验记录。');}
+        if(error.status===401||error.status===403)throw error;
+        if(++failures>=3)throw new Error('连接中断，任务已保留。请稍后恢复查看，无需重新上传。');
+        continue;
+      }
+      if(!job||typeof job.status!=='string')throw new Error('暂时无法读取任务进度，请稍后恢复查看。');
+      if(job.status==='failed'){clearPendingJob(id);throw new Error('本次核验未能完成，请重试或更换材料。');}
+      if(job.status==='completed'){
+        const report=reportFromResponse(job.result);clearPendingJob(id);completeTask(report);return;
+      }
+      taskMessage(typeof job.message==='string'&&job.message.trim()?job.message:'正在核验材料…');
     }
-    throw new Error('后端处理时间较长，任务编号已保留，请稍后恢复查看或打开核验记录。');
+    throw new Error('核验仍在进行，任务已保留。请稍后恢复查看。');
   }
 
   function renderContacts(){
@@ -557,99 +549,88 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     }catch{finishQuestionSwap();}
   }
 
-  function updateHistoryHint(){$('#historyHint').textContent=records.length?`${records.length} 次演示，记录在这里`:'每一步，都算数';}
+  function updateHistoryHint(){$('#historyHint').textContent='每一次核实，都有迹可循';}
   function dateText(value){const date=new Date(value);return Number.isNaN(date.getTime())?'时间未提供':date.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'});}
   async function renderHistory(revision=routeRevision){
-    body.innerHTML=heading('04 / 核验记录','每一次核实，都有迹可循。',realMode?'查看实际核验记录。':'记录当前浏览器中的演示报告。演示与实际检测分开保存。')+`<section class="surface" id="historyList"><div class="empty-state"><p>正在读取记录…</p></div></section>`;
-    const controller=viewController;let items=records;
-    if(realMode){
-      try{const data=await request('/api/cases',{},controller.signal);items=Array.isArray(data)?data:(data.items||data.cases||[]);if(!Array.isArray(items))throw new Error('返回的记录格式不正确。');}
-      catch(error){if(controller.signal.aborted||revision!==routeRevision)return;$('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>暂时无法连接后端。</h3><p>${e(error.message)}</p><button class="secondary" id="retryHistory">重新读取</button></div>`;$('#retryHistory').onclick=()=>renderHistory(revision);return;}
+    body.innerHTML=heading('04 / 核验记录','每一次核实，都有迹可循。','查看已完成的核验与报告。')+`<section class="surface" id="historyList"><div class="empty-state"><p>正在读取记录…</p></div></section>`;
+    const controller=viewController;let items;
+    try{
+      const data=await request('/cases',{},controller.signal);items=Array.isArray(data)?data:(data?.items||data?.cases);
+      if(!Array.isArray(items)||items.some(item=>!item||typeof item.id!=='string'))throw new Error('暂时无法读取记录，请重试。');
+      items=items.filter(item=>!item.demo);
+    }catch(error){
+      if(controller.signal.aborted||revision!==routeRevision)return;
+      $('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>暂时无法读取记录。</h3><p>${e(error.message)}</p><button class="secondary" id="retryHistory">重新读取</button></div>`;$('#retryHistory').onclick=()=>renderHistory(revision);return;
     }
     if(controller.signal.aborted||revision!==routeRevision)return;
-    if(!items.length){$('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>第一份安心记录，还在路上。</h3><p>检查一份材料，或体验一个虚构示例。<br>完成后的记录会出现在这里。</p><button id="firstCheck" class="primary">开始一次核验 ${icon('arrow')}</button></div>`;$('#firstCheck').onclick=()=>go('check');return;}
-    $('#historyList').innerHTML=items.map((r,i)=>`<div class="history-row"><span class="history-icon">${icon('file')}</span><div><h3>${e(r.name||r.filename||'核验记录')}</h3><small>${e(dateText(r.date||r.created_at))} · ${r.demo?'交互演示':'实际核验'}</small></div><button data-report="${i}">查看报告 ↗</button></div>`).join('');
-    $$('[data-report]').forEach(button=>button.onclick=async()=>{
-      const r=items[+button.dataset.report];if(r.demo){openReport(r);return;}
-      button.disabled=true;
-      try{const result=await request(`/api/cases/${encodeURIComponent(r.id)}`,{},controller.signal);if(!controller.signal.aborted&&revision===routeRevision)openReport({...result,demo:false});}
-      catch(error){if(!controller.signal.aborted){toast(error.message);button.disabled=false;}}
-    });
+    if(!items.length){$('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>还没有核验记录。</h3><p>提交一份材料，完成后可以在这里查看。</p><button id="firstCheck" class="primary">开始一次核验 ${icon('arrow')}</button></div>`;$('#firstCheck').onclick=()=>go('check');return;}
+    $('#historyList').innerHTML=items.map((r,i)=>`<div class="history-row"><span class="history-icon">${icon('file')}</span><div><h3>${e(r.name||r.filename||'核验记录')}</h3><small>${e(dateText(r.date||r.created_at))}</small></div><button data-report="${i}">查看报告 ↗</button></div>`).join('');
+    $$('[data-report]').forEach(button=>button.onclick=()=>go(`report/${encodeURIComponent(items[+button.dataset.report].id)}`));
   }
   async function renderReportFromId(id,revision){
     body.innerHTML=heading('核验报告','正在打开核验记录…','');
-    if(!realMode||!id){body.innerHTML=heading('核验报告','这份记录暂时不在这里。','演示记录仅保存在创建它的浏览器中。')+`<button id="backToHistory" class="primary">查看已有记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');return;}
+    if(!id){renderReportError('请从核验记录中选择一份报告。');return;}
     const controller=viewController;
-    try{const data=await request(`/api/cases/${encodeURIComponent(id)}`,{},controller.signal);if(controller.signal.aborted||revision!==routeRevision)return;currentReport={...data,demo:false};renderReport();}
-    catch(error){if(controller.signal.aborted||revision!==routeRevision)return;body.innerHTML=heading('核验报告','暂时无法读取这份报告。',e(error.message))+`<button id="backToHistory" class="primary">返回核验记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');}
+    try{const data=await request(`/cases/${encodeURIComponent(id)}`,{},controller.signal);if(controller.signal.aborted||revision!==routeRevision)return;currentReport=reportFromResponse(data);renderReport();}
+    catch(error){if(controller.signal.aborted||revision!==routeRevision)return;renderReportError(error.message);}
+  }
+  function renderReportError(message){body.innerHTML=heading('核验报告','暂时无法读取这份报告。',e(message))+`<button id="backToHistory" class="primary">返回核验记录 ${icon('arrow')}</button>`;$('#backToHistory').onclick=()=>go('history');}
+  function reportModules(report){
+    const source=report.modules||{};
+    return (Array.isArray(source)?source.map((m,i)=>[m?.type||String(i),m]):Object.entries(source)).filter(([key,m])=>key!=='tamper'&&m&&typeof m==='object'&&!m.disabled&&m.status!=='disabled');
   }
   function renderReport(){
-    const report=currentReport,demo=!!report.demo;
-    body.innerHTML=heading('核验报告','看见线索，记得再次确认。',e(report.name||report.filename||'核验报告'))+
-      `<div class="notice mode-notice">${icon(demo?'spark':'shield')}<span>${demo?'交互演示报告 · 以下是虚构示例，不是对所选文件的真实检测。':'实际后端报告 · 检测提供线索，身份仍需独立核实。'}</span></div><div class="result-banner">${icon('heart')}<div><h2>${demo?'先暂停转账，用熟悉的号码联系本人。':'结合实际线索，再向本人核实。'}</h2><p>${demo?'涉及资金或验证码时，独立联系本人，比熟悉的声音和画面更可靠。':'各模块独立提供线索。无法判断的模块不代表安全或危险。'}</p></div></div>`+
-      (demo?`<div class="result-modules"><section class="surface">${icon('sound')}<h3>声音检查 · 演示</h3>${wave()}<p>熟悉的声音也可能被克隆。波形为装饰性动画，不是文件的真实波形。</p></section><section class="surface">${icon('chat')}<h3>请求核实 · 虚构情景</h3><p class="quote-lines">“我换号码了”<br>“急用一笔钱”<br>“不方便打电话”</p><p>这些请求值得通过独立渠道核实。</p></section><section class="surface">${icon('heart')}<h3>你的下一步</h3><p class="quote-lines">01 / 暂停转账<br>02 / 不提供验证码<br>03 / 联系本人</p><p>一次确认，胜过匆忙的相信。</p></section></div>`:renderActualModules(report))+
-      `<div class="result-actions"><button id="reportContacts" class="primary">联系我的家人 ${icon('phone')}</button><button id="exportReport" class="secondary">下载${demo?'演示':'完整'}记录</button><button id="printReport" class="secondary">打印报告</button><button id="anotherCheck" class="text-button">再核验一份 ${icon('arrow')}</button></div>`+
-      (!demo?`<details class="surface report-details"><summary>查看完整后端记录</summary><pre class="raw-report">${e(JSON.stringify(report,null,2))}</pre></details>`:'');
+    const report=currentReport,legacy=!!report.demo,states=reportModules(report).map(([,module])=>moduleResult(module).status);
+    const title=legacy?'旧版示例':states.includes('flagged')?'发现需要核实的线索':states.includes('uncertain')?'存在待核实的线索':states.includes('below')?'核验结果已整理':report.chat_analysis?.status==='completed'?'聊天线索已整理':'本次未形成可用判断';
+    const summary=typeof report.summary==='string'&&report.summary.trim()?report.summary:legacy?'这是一份保存在当前浏览器中的旧版示例记录。':'请结合下面的模块结果与材料内容，继续核实。';
+    const steps=Array.isArray(report.next_steps)?report.next_steps.filter(item=>typeof item==='string'):[];
+    body.innerHTML=heading('核验报告',title,e(report.name||report.filename||'核验报告'))+
+      `${legacy?'<div class="notice mode-notice">旧版示例 · 不属于本次材料的检测结果</div>':''}<div class="result-banner">${icon('scan')}<div><h2>结果摘要</h2><p>${e(summary)}</p></div></div>`+
+      (legacy?'':renderActualModules(report))+
+      `<section class="surface report-next"><h2>下一步</h2><ul>${(steps.length?steps:['通过熟悉的联系方式，确认本人及具体请求。']).map(step=>`<li>${e(step)}</li>`).join('')}</ul></section><div class="result-actions"><button id="reportContacts" class="primary">联系家人 ${icon('phone')}</button><button id="exportReport" class="secondary">下载记录</button><button id="printReport" class="secondary">打印报告</button><button id="anotherCheck" class="text-button">再核验一份 ${icon('arrow')}</button></div><details class="surface report-details"><summary>完整记录</summary><pre class="raw-report">${e(JSON.stringify(report,null,2))}</pre></details>`;
     $('#reportContacts').onclick=()=>go('contacts');$('#anotherCheck').onclick=()=>{clearFile();fileError='';go('check');};$('#printReport').onclick=()=>window.print();
-    $('#exportReport').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`qinan-${report.id||'report'}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('记录已下载。');};
+    $('#exportReport').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`qinan-${report.id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('记录已下载。');};
   }
   function renderActualModules(report){
-    const source=report.modules||{};
-    const modules=Array.isArray(source)?source.map((m,i)=>[m.type||String(i),m]):Object.entries(source);
-    const labels={audio:'声音检查',video:'视频检查',image:'图片检查',chat:'聊天分析'};
-    const descriptions={flagged:'发现需要进一步核实的线索。',below:'未发现超过本项提醒线的分数，仍需核实。',uncertain:'出现弱线索，尚不能据此认定为 AI 生成。'};
-    return `<div class="result-modules">${modules.filter(([key,m])=>key!=='tamper'&&m&&!m.disabled&&m.status!=='disabled').map(([key,m])=>{
-      const result=moduleResult(m);
-      return `<section class="surface">${icon(key==='audio'?'sound':key==='video'?'video':'scan')}<h3>${e(labels[key]||key)}</h3><p>${result.status==='unavailable'?e(m.message||m.error||m.reason||m.note||'本项无法判断。'):descriptions[result.status]}</p>${result.status!=='unavailable'&&Number.isFinite(m.score)?`<p>检测分数：${m.score.toFixed(4)}<br>本项提醒线：${result.threshold}</p>`:''}<p>分数不是诈骗概率，也不能证明身份。</p></section>`;
-    }).join('')}</div>${report.chat_analysis?`<section class="surface" style="margin-top:20px"><h2>${e(report.chat_analysis.assessment?.title||'聊天分析')}</h2><p class="mode-explanation">${e(report.chat_analysis.assessment?.summary||'请查看完整记录中的实际分析。')}</p>${(Array.isArray(report.chat_analysis.signals)?report.chat_analysis.signals:[]).map(s=>`<div class="question-feedback"><b>${e(s.title)}</b><br><span style="white-space:pre-wrap">${e(s.quote)}</span></div>`).join('')}</section>`:''}`;
+    const modules=reportModules(report),labels={audio:'声音检查',video:'视频检查',image:'图片检查',chat:'聊天分析'},statuses={flagged:'需要核实',below:'未发现超过提醒线的线索',uncertain:'存在弱线索',unavailable:'未形成判断'};
+    const cards=modules.map(([key,m])=>{
+      const result=moduleResult(m),segments=Array.isArray(m.segments)?m.segments.filter(segment=>segment&&Number.isFinite(segment.score)):[];
+      return `<section class="surface module-card" data-status="${result.status}">${icon(key==='audio'?'sound':key==='video'?'video':'scan')}<h3>${e(labels[key]||key)}</h3><p class="module-state">${statuses[result.status]}</p>${typeof m.note==='string'?`<p>${e(m.note)}</p>`:''}<details class="module-details"><summary>检测明细</summary>${Number.isFinite(m.score)?`<p>检测分值 ${m.score.toFixed(4)}${Number.isFinite(m.threshold)?` · 提醒线 ${m.threshold}`:''}</p>`:''}${Number.isFinite(m.analyzed_seconds)?`<p>分析时长 ${m.analyzed_seconds} 秒</p>`:''}${segments.map(segment=>`<p>${Number.isFinite(segment.start)?`${segment.start} 秒起 · `:''}分值 ${segment.score.toFixed(4)}${Number.isFinite(segment.threshold)?` · 提醒线 ${segment.threshold}`:''}</p>`).join('')}${result.status==='unavailable'?'<p>本项结果不足以形成判断。</p>':''}</details></section>`;
+    }).join('');
+    const chat=report.chat_analysis,signals=Array.isArray(chat?.signals)?chat.signals.filter(signal=>signal&&typeof signal==='object'):[];
+    return `<div class="result-modules">${cards||'<section class="surface"><h3>暂无模块结果</h3><p>请查看完整记录，或稍后重新核验。</p></section>'}</div>${chat?`<section class="surface report-evidence"><h2>${e(chat.assessment?.title||'聊天线索')}</h2><p>${e(chat.assessment?.summary||chat.summary||chat.note||'暂无更多线索。')}</p>${signals.map(signal=>`<div class="question-feedback"><b>${e(signal.title)}</b><br><span>${e(signal.quote)}</span></div>`).join('')}</section>`:''}${report.ocr?.text?`<details class="surface report-details"><summary>材料文字</summary><p class="quote-lines">${e(report.ocr.text)}</p></details>`:''}`;
   }
 
-  function helpModal(){openModal(`<span class="modal-eyebrow">THREE STEPS TO A LITTLE MORE PEACE</span><h2 id="modalTitle">安心，只需要三步。</h2><div class="steps-help"><div><b>01</b><span>点击主页面的悬浮入口，选择声音、视频、照片或聊天截图。</span></div><div><b>02</b><span>上传一份材料，查看核验线索。演示模式只展示交互，不会检测文件。</span></div><div><b>03</b><span>涉及钱款与验证码，先停一停，用熟悉的号码联系本人。</span></div></div><div class="modal-actions"><button id="helpDone" class="primary">知道了 ${icon('check')}</button></div>`);$('#helpDone').onclick=closeModal;}
+  function helpModal(){openModal(`<span class="modal-eyebrow">HOW IT WORKS</span><h2 id="modalTitle">从一份材料开始。</h2><div class="steps-help"><div><b>01</b><span>选择声音、视频、照片或聊天截图，预览后提交。</span></div><div><b>02</b><span>查看核验结果和材料中的具体线索。</span></div><div><b>03</b><span>需要确认时，用熟悉的号码联系本人。</span></div></div><div class="modal-actions"><button id="helpDone" class="primary">知道了 ${icon('check')}</button></div>`);$('#helpDone').onclick=closeModal;}
   function settingsModal(){
-    openModal(`<span class="modal-eyebrow">MAKE YOURSELF AT HOME</span><h2 id="modalTitle">你的安心空间。</h2><div class="toggle-row"><span>工作模式</span><div class="pill"><button id="demoMode" class="${!realMode?'active':''}" ${activeTask?'disabled':''}>交互演示</button><button id="realMode" class="${realMode?'active':''}" ${activeTask?'disabled':''}>真实接口</button></div></div><p>${realMode?'真实模式需要连接原项目检测服务。当前托管网站未包含模型后端。':'演示模式可体验上传、报告和练习，文件只留在当前浏览器。'}</p><div class="toggle-row"><span>动态效果</span><button id="toggleMotion" class="secondary">${paused?'恢复动效':'暂停动效'}</button></div><p>家人联系人仅保存在当前浏览器。</p><div class="modal-actions"><button id="settingsDone" class="primary">完成 ${icon('check')}</button></div>`);
-    $('#demoMode').onclick=()=>setMode(false);$('#realMode').onclick=()=>setMode(true);$('#toggleMotion').onclick=()=>{toggleMotion();settingsModal();};$('#settingsDone').onclick=closeModal;
+    openModal(`<span class="modal-eyebrow">PREFERENCES</span><h2 id="modalTitle">使用偏好</h2><div class="toggle-row"><span>动态效果</span><button id="toggleMotion" class="secondary">${paused?'恢复动效':'暂停动效'}</button></div><p>联系人保存在当前浏览器，可在“联系家人”中管理。</p><div class="modal-actions"><button id="manageContacts" class="secondary">管理联系人</button><button id="settingsDone" class="primary">完成 ${icon('check')}</button></div>`);
+    $('#toggleMotion').onclick=()=>{toggleMotion();settingsModal();};$('#manageContacts').onclick=()=>{closeModal();go('contacts');};$('#settingsDone').onclick=closeModal;
   }
-  function setMode(next){
-    if(activeTask||realMode===next)return;
-    realMode=next;setStored('qinan-real-mode',String(realMode));updateMode();
-    // Same-window content update without replaying the window entrance.
-    if(page==='check'||page==='history'){disposeView();if(page==='check')renderCheck();else renderHistory();}
-    settingsModal();
-  }
-  function pauseAmbient(){entranceAnimations.forEach(animation=>animation.complete());ambientAnimations.forEach(animation=>animation.pause());$$('.portal-node').forEach(node=>{utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');});}
-  function resumeAmbient(){if(motionEnabled()&&page==='home'&&transitions.state==='closed')ambientAnimations.forEach(animation=>animation.resume());}
+
+  function pauseAmbient(){homeMotion.finish?.();$$('.portal-node').forEach(node=>{utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');});}
   function syncMotion(){
-    document.body.classList.toggle('motion-off',paused||mediaQuery.matches);
+    document.body.classList.toggle('motion-off',paused||mediaQuery.matches);homeMotion.setPaused?.(!motionEnabled());
     $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
     $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
     updateUploadIsland();statusIsland?.update(taskStatusProps());practiceCounter?.update(counterProps());practiceFaq?.update({paused:!motionEnabled()});
-    if(!motionEnabled()){settleModal();finishQuestionSwap();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
+    if(!motionEnabled()){settleModal();finishQuestionSwap();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');}
   }
   function toggleMotion(){paused=!paused;setStored('qinan-motion-paused',String(paused));syncMotion();}
   const motionChange=()=>{paused=mediaQuery.matches||getStored('qinan-motion-paused','false')==='true';syncMotion();};mediaQuery.addEventListener('change',motionChange);
-  $('#modeButton').onclick=settingsModal;$('#settings').onclick=settingsModal;$('#helpButton').onclick=helpModal;$('#watchDemo').onclick=demoModal;
+  if($('#startCheck'))$('#startCheck').onclick=()=>go('check');$('#settings').onclick=settingsModal;$('#helpButton').onclick=helpModal;if($('#howItWorks'))$('#howItWorks').onclick=helpModal;
   $('#motionButton').onclick=()=>{toggleMotion();toast(paused?'动态效果已暂停。':'动态效果已恢复。');};
   $('#scatterButton').onclick=async()=>{
     const button=$('#scatterButton');button.disabled=true;
     button.setAttribute('aria-busy','true');
-    try{const form=await visual.toggleForm();button.querySelectorAll('span')[1].textContent=form==='slogan'?'复原为盾牌':'化作安心标语';}
+    try{const form=await visual.toggleForm();button.querySelectorAll('span')[1].textContent=form==='slogan'?'合拢为安印':'展开安心标语';}
     finally{button.disabled=false;button.setAttribute('aria-busy','false');}
   };
 
   function setupPortalMotion(){
-    if(motionEnabled()){
-      entranceAnimations.push(animate('.intro-copy',{opacity:[0,1],y:[18,0],duration:1050,ease:'outExpo'}));
-      $$('.portal-node').forEach((node,i)=>{
-        entranceAnimations.push(animate(node,{opacity:[0,1],scale:[.97,1],duration:650,delay:80+i*65,ease:'outExpo'}));
-        
-      });
-    }
-    $$('.portal-node').forEach((node,i)=>{const float=animate(node,{y:[-3,3],duration:4400+i*320,delay:i*190,alternate:true,loop:true,autoplay:false,ease:'inOutSine'});ambientAnimations.push(float);});
-    // Continuous float is independent of magnetic hover; remove only the hovered properties.
     $$('.portal-node').forEach(node=>{
       const move=ev=>{
         if(!motionEnabled()||page!=='home'||transitions.state!=='closed'||innerWidth<700)return;
-        visual.setPortalFocus?.({x:ev.clientX/innerWidth*2-1,y:1-ev.clientY/window.innerHeight*2});
+        visual.setPortalFocus?.({portalId:node.dataset.portal,x:ev.clientX/innerWidth*2-1,y:1-ev.clientY/window.innerHeight*2});
         const rect=node.getBoundingClientRect(),x=(ev.clientX-rect.left)/rect.width,y=(ev.clientY-rect.top)/rect.height;
         node.style.setProperty('--px',`${x*100}%`);node.style.setProperty('--py',`${y*100}%`);
         utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');
@@ -659,21 +640,21 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       const focus=()=>{
         if(!motionEnabled()||page!=='home'||transitions.state!=='closed')return;
         const rect=node.getBoundingClientRect();
-        visual.setPortalFocus?.({x:(rect.left+rect.width/2)/innerWidth*2-1,y:1-(rect.top+rect.height/2)/window.innerHeight*2});
+        visual.setPortalFocus?.({portalId:node.dataset.portal,x:(rect.left+rect.width/2)/innerWidth*2-1,y:1-(rect.top+rect.height/2)/window.innerHeight*2});
       };
       node.addEventListener('pointermove',move);node.addEventListener('pointerleave',leave);
       node.addEventListener('focus',focus);node.addEventListener('blur',leave);
       pointerDisposers.push(()=>{node.removeEventListener('pointermove',move);node.removeEventListener('pointerleave',leave);node.removeEventListener('focus',focus);node.removeEventListener('blur',leave);});
     });
   }
-  syncMotion();updateMode();updateHistoryHint();
+  syncMotion();updateHistoryHint();
   const beginInterface=()=>{if(destroyed)return;startupPending=false;setupPortalMotion();syncMotion();route();};
   if(startReady)Promise.resolve(startReady).then(beginInterface,beginInterface);else beginInterface();
-  const onPrint=()=>{$$('.report-details').forEach(details=>{details.dataset.wasOpen=String(details.open);details.open=true;});};
-  const afterPrint=()=>{$$('.report-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
+  const onPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.dataset.wasOpen=String(details.open);details.open=true;});};
+  const afterPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
     refreshIslands(){if(destroyed||startupPending)return;if(page==='check'){if(activeTask)renderProcessing();else renderFile();}else if(page==='practice')refreshPracticeIslands();},
-    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;viewController?.abort();api.destroy();homeMotion.destroy?.();clearFile();clearTimeout(toastTimer);utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

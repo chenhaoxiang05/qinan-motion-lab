@@ -27,215 +27,130 @@ export function glyphShapes(character) {
   return path.toShapes(true);
 }
 
-function shieldContour() {
-  const shape = new THREE.Shape();
-  shape.moveTo(0, 1.36);
-  shape.bezierCurveTo(.36, 1.36, .72, 1.22, 1.02, 1.07);
-  shape.bezierCurveTo(1.12, 1.02, 1.14, .94, 1.13, .82);
-  shape.bezierCurveTo(1.10, .27, 1.04, -.25, .78, -.69);
-  shape.bezierCurveTo(.58, -1.04, .25, -1.31, .07, -1.43);
-  shape.quadraticCurveTo(0, -1.47, -.07, -1.43);
-  shape.bezierCurveTo(-.25, -1.31, -.58, -1.04, -.78, -.69);
-  shape.bezierCurveTo(-1.04, -.25, -1.10, .27, -1.13, .82);
-  shape.bezierCurveTo(-1.14, .94, -1.12, 1.02, -1.02, 1.07);
-  shape.bezierCurveTo(-.72, 1.22, -.36, 1.36, 0, 1.36);
-  shape.closePath();
-  return shape;
+export const PANEL_ORDER = Object.freeze([
+  Object.freeze([0, 2]), Object.freeze([1, 4]), Object.freeze([3, 5])
+]);
+export const SLOGAN_CHARS = Object.freeze(['先', '核', '实', '再', '放', '心']);
+export const PANEL_SIZE = 1;
+export const PANEL_DEPTH = .10;
+export const FACE_SIZE = .97;
+export const FACE_Z = .051;
+export const CLOSED_EXTENT = Object.freeze({ width: 2.02, height: 3.04 });
+// Includes the fully released brackets and the widest intermediate translation.
+export const SEAL_BOUNDS = Object.freeze({ width: 3.64, height: 3.44, depth: 1.02 });
+
+const CLOSED_POSITIONS = [
+  [-.51, 1.02, 0], [-.51, 0, 0], [.51, 1.02, 0],
+  [-.51, -1.02, 0], [.51, 0, 0], [.51, -1.02, 0]
+];
+const OPEN_POSITIONS = SLOGAN_CHARS.map((_, id) => [(id % 3 - 1) * 1.12, (.5 - Math.floor(id / 3)) * 1.12, 0]);
+const clamp = value => Math.max(0, Math.min(1, value));
+const smooth = value => { const t = clamp(value); return t * t * (3 - 2 * t); };
+const phase = (progress, start, end) => smooth((progress - start) / (end - start));
+const mix = (a, b, t) => t <= 0 ? a : t >= 1 ? b : a + (b - a) * t;
+
+function requirePanel(id) {
+  if (!Number.isInteger(id) || id < 0 || id >= 6) throw new RangeError('Panel ID must be an integer from 0 to 5.');
 }
 
-/** Smooth swept oval section, giving chrome a genuine continuous reflection surface. */
-function rimGeometry(contour, { scale = 1, width = .048, depth = .070, z = .11 } = {}) {
-  const points = contour.getSpacedPoints(256).slice(0, -1);
-  const count = points.length, sections = 20, positions = [], indices = [];
-  for (let i = 0; i < count; i++) {
-    const previous = points[(i + count - 1) % count], next = points[(i + 1) % count];
-    const tx = next.x - previous.x, ty = next.y - previous.y, length = Math.hypot(tx, ty);
-    const nx = -ty / length, ny = tx / length;
-    for (let j = 0; j < sections; j++) {
-      const angle = j / sections * Math.PI * 2, amount = Math.cos(angle) * width;
-      positions.push(points[i].x * scale + nx * amount, points[i].y * scale + ny * amount, z + Math.sin(angle) * depth);
-      const a = i * sections + j, b = ((i + 1) % count) * sections + j;
-      const c = ((i + 1) % count) * sections + (j + 1) % sections, d = i * sections + (j + 1) % sections;
-      indices.push(a, d, b, b, d, c);
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices); geometry.computeVertexNormals(); geometry.computeBoundingBox();
-  return geometry;
+/**
+ * UVs refer to one continuous closed seal image, including the real .02 seams.
+ * They deliberately do not stretch six equal image crops onto the visible faces.
+ * The input u/v are normalized coordinates on the .97-wide printed face.
+ */
+export function frontUvForPanel(id, u, v) {
+  requirePanel(id);
+  const [x, y] = CLOSED_POSITIONS[id];
+  return [
+    (x + (u - .5) * FACE_SIZE + CLOSED_EXTENT.width / 2) / CLOSED_EXTENT.width,
+    (y + (v - .5) * FACE_SIZE + CLOSED_EXTENT.height / 2) / CLOSED_EXTENT.height
+  ];
 }
 
-/** Closed, gently convex front and back; the face is never a flat extruded polygon. */
-function faceGeometry(contour) {
-  const outline = contour.getSpacedPoints(192).slice(0, -1), count = outline.length, rings = 28;
-  const positions = [], indices = [];
-  for (let side = 0; side < 2; side++) {
-    for (let ring = 0; ring <= rings; ring++) {
-      const radius = ring / rings;
-      for (const point of outline) {
-        positions.push(point.x * radius * .83, point.y * radius * .83,
-          side === 0 ? -.07 + .13 * (1 - radius * radius) : -.15 - .025 * (1 - radius * radius));
-      }
-    }
-  }
-  const sideVertices = (rings + 1) * count;
-  for (let side = 0; side < 2; side++) {
-    const offset = side * sideVertices;
-    for (let ring = 0; ring < rings; ring++) for (let j = 0; j < count; j++) {
-      const a = offset + ring * count + j, b = offset + ring * count + (j + 1) % count;
-      const c = offset + (ring + 1) * count + j, d = offset + (ring + 1) * count + (j + 1) % count;
-      if (side === 0) indices.push(a, b, c, b, d, c); else indices.push(a, c, b, b, c, d);
-    }
-  }
-  for (let j = 0; j < count; j++) {
-    const a = rings * count + j, b = rings * count + (j + 1) % count;
-    indices.push(a, b, a + sideVertices, b, b + sideVertices, a + sideVertices);
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices); geometry.computeVertexNormals(); geometry.computeBoundingBox();
-  return geometry;
+/** Back atlas order matches the readable three-column, two-row final sentence. */
+export function backUvForPanel(id, u, v) {
+  requirePanel(id);
+  return [(id % 3 + u) / 3, (1 - Math.floor(id / 3) + v) / 2];
 }
 
-export function buildShieldGeometry() {
-  const contour = shieldContour();
-  const glyphGeometry = new THREE.ExtrudeGeometry(glyphShapes('安'), {
-    depth: 34, bevelEnabled: true, bevelThickness: 5, bevelSize: 4, bevelSegments: 3, curveSegments: 10, steps: 1
+/** A 45-degree bevel keeps the plaques mechanical instead of inflated or glossy. */
+export function buildSealGeometry() {
+  const profile = new THREE.Shape();
+  const half = .485;
+  profile.moveTo(-half, -half); profile.lineTo(half, -half);
+  profile.lineTo(half, half); profile.lineTo(-half, half); profile.closePath();
+  const panelBodyGeometry = new THREE.ExtrudeGeometry(profile, {
+    depth: .07, bevelEnabled: true, bevelThickness: .015, bevelSize: .015,
+    bevelSegments: 1, curveSegments: 1, steps: 1
   });
-  glyphGeometry.computeBoundingBox();
-  const center = glyphGeometry.boundingBox.getCenter(new THREE.Vector3());
-  const scale = .98 / (glyphGeometry.boundingBox.max.x - glyphGeometry.boundingBox.min.x);
-  glyphGeometry.translate(-center.x, -center.y, 0); glyphGeometry.scale(scale, scale, scale);
-  glyphGeometry.translate(0, .10, 0);
-  // The lettering floats in front of the smoked core, revealing separation in parallax.
-  glyphGeometry.translate(0, 0, .30);
-  glyphGeometry.computeVertexNormals(); glyphGeometry.computeBoundingBox();
-  return {
-    rimGeometry: rimGeometry(contour),
-    coreGeometry: faceGeometry(contour),
-    glyphGeometry,
-    accentGeometry: rimGeometry(contour, { scale: .89, width: .007, depth: .009, z: -.03 })
-  };
+  panelBodyGeometry.translate(0, 0, -.035);
+  panelBodyGeometry.computeBoundingBox();
+  panelBodyGeometry.computeBoundingSphere();
+
+  const facePlaneGeometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE);
+  facePlaneGeometry.computeBoundingBox();
+  const bracket = new THREE.Shape();
+  bracket.moveTo(0, 0); bracket.lineTo(.20, 0); bracket.lineTo(.20, -.026);
+  bracket.lineTo(.026, -.026); bracket.lineTo(.026, -.20); bracket.lineTo(0, -.20); bracket.closePath();
+  const cornerGeometry = new THREE.ExtrudeGeometry(bracket, { depth: .035, bevelEnabled: false, curveSegments: 1, steps: 1 });
+  cornerGeometry.translate(0, 0, -.0175);
+  cornerGeometry.computeBoundingBox();
+  cornerGeometry.computeBoundingSphere();
+  return { panelBodyGeometry, facePlaneGeometry, cornerGeometry };
 }
 
-function polygonContains(points, x, y) {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const a = points[i], b = points[j];
-    if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+/**
+ * The back is physically facing away before the parent plaque turns through PI.
+ * Rotating geometry and normals together, while retaining ordinary UV winding,
+ * makes a second PI turn show the characters in their original reading direction.
+ */
+export function createPanelFaceGeometry(id, side = 'front') {
+  requirePanel(id);
+  if (side !== 'front' && side !== 'back') throw new RangeError('Panel side must be front or back.');
+  const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE);
+  const uv = geometry.attributes.uv;
+  const map = side === 'front' ? frontUvForPanel : backUvForPanel;
+  for (let i = 0; i < uv.count; i++) {
+    const [u, v] = map(id, uv.getX(i), uv.getY(i));
+    uv.setXY(i, u, v);
   }
-  return inside;
-}
-function sloganGrid(maximumCells) {
-  const outlines = [], rows = ['先核实', '再放心'];
-  rows.forEach((row, rowIndex) => [...row].forEach((character, column) => {
-    const shapes = glyphShapes(character);
-    const contours = shapes.map(shape => ({ outer: shape.getPoints(12), holes: shape.holes.map(h => h.getPoints(12)) }));
-    const all = contours.flatMap(c => c.outer);
-    const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x));
-    const minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y));
-    outlines.push({ contours, minX, maxX, minY, maxY, rowIndex, column });
-  }));
-  // A complete coarser glyph is more legible than truncating the last character on mobile.
-  let step = Math.max(31, Math.floor(31 * Math.sqrt(2610 / maximumCells)));
-  for (;;) {
-    const cells = [];
-    for (const { contours, minX, maxX, minY, maxY, rowIndex, column } of outlines) {
-      const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
-      for (let y = minY + step * .42; y < maxY; y += step) for (let x = minX + step * .42; x < maxX; x += step) {
-        if (contours.some(c => polygonContains(c.outer, x, y) && !c.holes.some(h => polygonContains(h, x, y)))) {
-          cells.push([(x - centerX) * .00094 + (column - 1) * .99, (y - centerY) * .00094 + (.5 - rowIndex) * 1.11]);
-        }
-      }
-    }
-    if (cells.length && cells.length <= maximumCells) return {cells, pitch: step * .00094};
-    if (step > 1000) return {cells: [[0, 0]], pitch: 1};
-    step += 1;
-  }
+  uv.needsUpdate = true;
+  if (side === 'back') geometry.rotateY(Math.PI);
+  geometry.translate(0, 0, side === 'front' ? FACE_Z : -FACE_Z);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
-/** Morton ordering pairs nearby regions without random particle crossings. */
-function spatialSort(points) {
-  const xs=points.map(p=>p[0]), ys=points.map(p=>p[1]);
-  const minX=Math.min(...xs), minY=Math.min(...ys);
-  const width=Math.max(...xs)-minX || 1, height=Math.max(...ys)-minY || 1;
-  const spread=value=>{let result=0;for(let bit=0;bit<10;bit++)result|=((value>>bit)&1)<<(bit*2);return result;};
-  const key=p=>spread(Math.round((p[0]-minX)/width*1023))|(spread(Math.round((p[1]-minY)/height*1023))<<1);
-  return points.map((point,index)=>({point,index,key:key(point)})).sort((a,b)=>a.key-b.key||a.index-b.index).map(entry=>entry.point);
-}
-
-function contoursFor(shapes, transform=(point)=>point) {
-  return shapes.map(shape=>({outer:shape.getPoints(12).map(transform),holes:shape.holes.map(hole=>hole.getPoints(12).map(transform))}));
-}
-const contains=(contours,x,y)=>contours.some(c=>polygonContains(c.outer,x,y)&&!c.holes.some(h=>polygonContains(h,x,y)));
-function edgeDistance(points,x,y) {
-  let distance=Infinity;
-  for(let i=0;i<points.length;i++){
-    const a=points[i],b=points[(i+1)%points.length],dx=b.x-a.x,dy=b.y-a.y;
-    const t=THREE.MathUtils.clamp(((x-a.x)*dx+(y-a.y)*dy)/(dx*dx+dy*dy||1),0,1);
-    distance=Math.min(distance,Math.hypot(x-a.x-t*dx,y-a.y-t*dy));
-  }
-  return distance;
-}
-function radialFraction(points,x,y) {
-  if(Math.abs(x)+Math.abs(y)<1e-9)return 0;
-  let boundaryScale=Infinity;
-  for(let i=0;i<points.length;i++){
-    const a=points[i],b=points[(i+1)%points.length],dx=b.x-a.x,dy=b.y-a.y;
-    const determinant=x*dy-y*dx;
-    if(Math.abs(determinant)<1e-9)continue;
-    const distance=(a.x*dy-a.y*dx)/determinant;
-    const along=(a.x*y-a.y*x)/determinant;
-    if(distance>0&&along>=0&&along<=1)boundaryScale=Math.min(boundaryScale,distance);
-  }
-  return Number.isFinite(boundaryScale)?1/boundaryScale:0;
-}
-
-/** One regular XY lattice samples each visible shield layer; no random clusters. */
-function shieldGrid(count, minimumPitch) {
-  const contour=shieldContour().getSpacedPoints(192).slice(0,-1);
-  const core=contour.map(point=>point.clone().multiplyScalar(.83));
-  const shapes=glyphShapes('安'), raw=contoursFor(shapes), all=raw.flatMap(c=>c.outer);
-  const minX=Math.min(...all.map(p=>p.x)),maxX=Math.max(...all.map(p=>p.x));
-  const minY=Math.min(...all.map(p=>p.y)),maxY=Math.max(...all.map(p=>p.y));
-  const scale=.98/(maxX-minX+8),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
-  const letter=contoursFor(shapes,point=>new THREE.Vector2((point.x-cx)*scale,(point.y-cy)*scale+.10));
-  let pitch=Math.max(minimumPitch,Math.sqrt(3.5/count));
-  for(let attempt=0;attempt<80;attempt++){
-    const points=[];
-    for(let gy=Math.ceil(-1.54/pitch);gy<=Math.floor(1.44/pitch);gy++)for(let gx=Math.ceil(-1.22/pitch);gx<=Math.floor(1.22/pitch);gx++){
-      const x=gx*pitch,y=gy*pitch;
-      let z,color;
-      if(contains(letter,x,y)){z=.335;color=[.92,.96,.91];}
-      else if(polygonContains(core,x,y)){
-        const radius=radialFraction(core,x,y);z=-.07+.13*(1-radius*radius);color=[.20,.23,.26];
-      }else if(edgeDistance(contour,x,y)<.050){z=.16;color=[.78,.84,.89];}
-      else continue;
-      points.push([x,y,z,...color]);
-    }
-    if(points.length>=count){
-      const ordered=spatialSort(points);
-      // Even selection retains the whole outline and all material regions.
-      return {points:Array.from({length:count},(_,i)=>ordered[Math.floor((i+.5)*ordered.length/count)]),pitch};
-    }
-    if(pitch<=minimumPitch+1e-9)throw new Error('Shield lattice cannot fit the requested glyph count without overlap.');
-    pitch=Math.max(minimumPitch,pitch*.97);
-  }
-  throw new Error('Shield lattice allocation did not converge.');
-}
-
-/** Actual glyph count, a single depth plane, and an explicit 34% inter-cube gap. */
-export function createVoxelTargets(maximumCount, suppliedGeometries) {
-  if(!Number.isInteger(maximumCount)||maximumCount<1||maximumCount>4096)throw new Error('Voxel count must be an integer between 1 and 4096.');
-  // Keep the optional geometry argument compatible with callers; sampling is analytic.
-  void suppliedGeometries;
-  const {cells,pitch}=sloganGrid(maximumCount),count=cells.length;
-  const endPoints=spatialSort(cells),shield=shieldGrid(count,pitch);
-  const starts=new Float32Array(count*3),ends=new Float32Array(count*3),colors=new Float32Array(count*3);
-  for(let i=0;i<count;i++){
-    const source=shield.points[i],target=endPoints[i];
-    starts.set(source.slice(0,3),i*3);colors.set(source.slice(3,6),i*3);
-    ends.set([target[0],target[1],0],i*3);
-  }
-  return {count,starts,ends,colors,pitch,cubeSize:pitch*.66,startPitch:shield.pitch};
+/**
+ * One reversible mechanical clock. XY travel and flipping never overlap:
+ * 0–.12 release; .12–.32 spread/lift; .32–.56 slide; .56–.60 seat;
+ * .60–.91 flip in a short ordered cascade; .91–1 close the registration corners.
+ * The middle plaques occupy separate depth lanes during intersecting XY travel.
+ */
+export function sampleSealPose(value) {
+  const progress = Number.isFinite(value) ? clamp(value) : 0;
+  const spread = phase(progress, .12, .32);
+  const slide = phase(progress, .32, .56);
+  const seat = phase(progress, .56, .60);
+  const panels = CLOSED_POSITIONS.map((closed, id) => {
+    const target = OPEN_POSITIONS[id];
+    const middle = id === 1 || id === 4;
+    const position = middle
+      ? [mix(closed[0], target[0], slide), mix(closed[1], target[1], slide), (id === 1 ? .18 : -.18) * spread * (1 - seat)]
+      : [mix(closed[0], target[0], spread), mix(closed[1], target[1], slide), 0];
+    const flipStart = .60 + id * .018;
+    const rotationY = Math.PI * phase(progress, flipStart, flipStart + .22);
+    return { id, position, rotationY };
+  });
+  const release = .10 * phase(progress, 0, .12) * (1 - phase(progress, .91, 1));
+  const x = mix(1.10, 1.71, spread) + release;
+  const y = mix(1.61, 1.15, slide) + release;
+  const corners = [
+    { position: [-x, y, .01], rotationZ: 0 },
+    { position: [x, y, .01], rotationZ: -Math.PI / 2 },
+    { position: [x, -y, .01], rotationZ: Math.PI },
+    { position: [-x, -y, .01], rotationZ: Math.PI / 2 }
+  ];
+  return { progress, panels, corners };
 }

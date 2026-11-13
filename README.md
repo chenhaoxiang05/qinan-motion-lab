@@ -1,16 +1,17 @@
-# 亲安 QINAN v8 · 字形与节奏
+# 亲安 QINAN v9 · 信号与安印
 
-黑白与酸绿的个人安全界面。保留四个悬浮入口、可重组的立体「安」盾牌，以及材料核验、联系人、情景练习和历史记录。
+黑、骨白、酸绿与局部钴蓝构成的个人安全界面。四个悬浮入口连接材料核验、家人联系人、情景练习和核验记录；中央六片双面机械铭牌可展开为「先核实 / 再放心」。
 
-在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。使用原有访问权限，开发分支为 `v8-flow`。`main` 和旧版标签继续保留历史版本。
+在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。沿用原有访问权限，当前开发分支为 `v9-signal`。旧分支和标签完整保留。
 
-## v8 更新
+## v9 更新
 
-- 收回功能窗口时显示独立的板块编号、标题和说明，回到首页前先恢复入口文字，避免缩回的空白帧；模糊遮罩仍在关闭时立即消失。
-- 情景练习压缩顶部标题与待答队列，保留完整材料和三个选项。桌面左右并排，小屏上下排列；材料和答案字号不低于 14px。
-- “下一道情景”移到滚动区外的固定操作栏，答题退场结束后解锁；最后一题进入复盘，完成后可原位再练一轮。反馈与 Rare UI 复盘保留，下一步不再埋在长内容底部。
-- 启动页改为持续可辨认的「亲安 / QINAN」字标，以字形变奏、轮廓切换、短暂错位和负形切口表达真实加载进度。中文不再拆开飞散；保留三个真实就绪阶段、跳过、短版重访和超时放行。
-- 保留 Anime.js 待答票据布局退场、Rare UI 计分与复盘，以及上传、联系人、报告、历史记录和体素盾牌。
+- 启动采用 Marathon 风格的信号海报：固定巨大「亲安」、局部色块对位、中央窗口揭幕。首次约 2 秒、重访约 450ms；真实资源就绪驱动加载状态，慢加载停留在完整海报，最多 4 秒放行。
+- 六片机械安印替换体素：合拢时是连续「安」字，展开后翻面显示六字标语。先分离、再排布、最后翻面锁定；暂停、离开页面或切换功能时收敛到完整状态。
+- 首页增加短暂文字套准、逐行揭示、下划线、标点与入口角标节奏。切入功能前会清理临时遮罩，返回首页不重复播放。
+- 背景采用硬边色面、不完整设备框、局部网格、四入口连线与有限扫描；为标题留出安静区域，手机减少计算。
+- 移除演示模式与模拟上传结果，统一接入真实 `/api` 流程。失败保留材料，支持任务恢复、报告明细和历史记录；旧版示例只保留带标签的旧链接。
+- 延续 Rare UI 上传文件夹、状态、计分和复盘组件，以及 Anime.js 答题布局退场、固定下一题操作栏和窗口收回文字。
 
 ## 在其他设备继续开发
 
@@ -19,7 +20,7 @@
 ```sh
 git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
 cd qinan-motion-lab
-git switch v8-flow
+git switch v9-signal
 npm ci
 npm run dev
 ```
@@ -32,13 +33,15 @@ npm run build
 
 构建输出在 `dist/`，与源码一起保留。React/Motion 组件和 Three.js 场景分别延迟加载；组件样式仅生成带前缀的 Tailwind utilities，没有全局 preflight。
 
-保留 hash 路由、`qinan-contacts` 浏览器本地存储和原 `/api` 接口。默认是**交互演示**，报告明确标注虚构示例；仓库不包含模型后端，也不包含用户运行时的联系人或上传文件。
+保留 hash 路由和 `qinan-contacts` 浏览器本地存储。默认请求同源 `/api`；开发时 Vite 转发至 `http://127.0.0.1:8010`。复制 `.env.example` 为 `.env.local` 可修改代理或公开 API 地址，详见 [后端接入](docs/API-INTEGRATION.md)。
+
+仓库包含前端，不包含检测模型后端。当前 GPT Site 尚未连接核验服务，上传提交和历史读取会显示真实请求错误；不会生成模拟报告。联系人、情景练习和视觉交互可独立使用。
 
 ## 验证与同步
 
-自动化覆盖上传与拖拽、启动就绪/超时、真实 React 组件接入、Anime.js 生命周期、弹窗文字恢复、答题队列、体素间隙和 WebGL 降级。详见 [v8 验收记录](docs/V8-ACCEPTANCE.md)。
+112 项自动化测试通过，覆盖真实 Anime.js 中间帧、启动与首页清理、上传与任务恢复、React 组件生命周期、答题与窗口返回、机械板片路径和 SVG 降级。背景着色器通过原生 GLES 编译链接；详见 [v9 验收记录](docs/V9-ACCEPTANCE.md)。
 
-当前浏览器工具启动失败，未完成真实浏览器截图、GPU 观感、移动端触控和原生文件选择器、字标变奏和情景练习布局的视觉验收。JSDOM 检查不能替代这些检查。按用户授权继续同步本次版本；不把未执行的视觉验收标为通过。
+浏览器工具仍因环境初始化错误无法启动，未完成真实浏览器布局、GPU 观感、移动触控和原生文件选择器验收。SVG 栅格图、原生着色器检查和 JSDOM 回归不能代替这些检查。
 
 每次完成更新都同步 GitHub 和同一个 GPT Site，保持站点原有访问权限；协作约定见 [AGENTS.md](AGENTS.md)。部署关联保存在 `.openai/hosting.json`。普通本地开发无需修改，部署自己的 Sites 项目时需替换项目 ID。
 
@@ -54,6 +57,7 @@ npm run build
 | 第六版 FUI 与 Rare UI | `v6-fui` |
 | 第七版聚合启动与情景练习 | `v7-experience` |
 | 第八版字标与答题布局 | `v8-flow` |
+| 第九版信号海报与机械安印 | `v9-signal` |
 
 查看旧版：`git switch --detach v3.0.0`；从旧版继续：`git switch -c my-redesign v3.0.0`。切换版本后重新执行 `npm ci`。
 
@@ -64,5 +68,5 @@ npm run build
 - [Rare UI Folder](https://www.rareui.com/components/foldercomponent)、[Inline AI Status](https://www.rareui.com/components/aistatus)、[Grid Reveal](https://www.rareui.com/components/gridreveal)：直接改编的组件源码，Copyright © 2026 Swami Malode。
 - [Rare UI Faq](https://www.rareui.com/r/faq.json) 与 [AnimatedCounter](https://www.rareui.com/r/animated-counter.json)：直接改编的复盘与计分组件。
 - [Anime.js Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation)：答题队列退场。
-- [Nicolas Girard 的 Valorant 字标设计](https://nicolas.to/Valorant)与 Marathon 的界面设计语言仅作字形、图形和节奏参考，没有使用其商标、游戏美术或专有字体。QINAN 的 SVG 轮廓为本项目绘制；动效使用已安装的 Anime.js API，并非 Rare UI 的 Valorant 组件。
+- [Michael Rigley 的 Marathon 设计案例](https://www.michaelrigley.com/work/marathon/)作为配色、图形和信息排布参考；不包含游戏商标、美术或专有字体。QINAN 英文字标为原创路径，中文轮廓来自许可允许的 Noto Sans CJK；动效使用 Anime.js，并非 Rare UI 的 Valorant 组件。
 - 本地字体和其他依赖遵循各自许可，字体许可随发布保留在 `public/licenses/`。

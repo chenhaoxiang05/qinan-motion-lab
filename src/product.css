@@ -1,0 +1,24 @@
+/* Production reports share the hard-edged visual language of the home screen. */
+.result-modules { grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: 14px; }
+.result-modules .module-card { position: relative; border-top: 2px solid #89947b; }
+.result-modules .module-card[data-status="flagged"] { border-top-color: #f4ad73; }
+.result-modules .module-card[data-status="uncertain"] { border-top-color: #d8d375; }
+.result-modules .module-card[data-status="below"] { border-top-color: var(--lime); }
+.result-modules .module-state { color: #e8eddd; font-size: 15px; font-weight: 500; }
+.module-details { margin-top: 22px; border-top: 1px solid #dce8c525; }
+.module-details summary { min-height: 44px; padding: 12px 0; color: #b8c6a7; font-size: 13px; cursor: pointer; }
+.module-details[open] summary { color: var(--lime); }
+.module-details p { font-variant-numeric: tabular-nums; }
+.report-next,.report-evidence { margin-block: 22px; }
+.report-next { border-left: 3px solid var(--lime); }
+.report-next ul { padding-left: 22px; margin: 0; color: #cad4bd; }
+.report-next li + li { margin-top: 10px; }
+.report-evidence > p { color: #c2cdb5; }
+.report-evidence .question-feedback { margin-top: 14px; }
+.report-evidence .question-feedback span,.report-details .quote-lines { white-space: pre-wrap; }
+.report-details .raw-report { border-radius: 2px; }
+@media print {
+  .module-details { display: block; }
+  .module-details summary { padding-block: 4px; min-height: 0; }
+  .report-next,.report-evidence { break-inside: avoid; }
+}

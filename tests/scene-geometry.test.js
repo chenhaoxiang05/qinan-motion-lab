@@ -1,76 +1,159 @@
-import {test} from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {buildShieldGeometry,createVoxelTargets,glyphShapes} from '../src/scene-geometry.js';
+import * as THREE from 'three';
+import { OBB } from 'three/addons/math/OBB.js';
+import {
+  buildSealGeometry, createPanelFaceGeometry, glyphShapes, sampleSealPose,
+  PANEL_ORDER, SLOGAN_CHARS, PANEL_SIZE, PANEL_DEPTH, FACE_SIZE, FACE_Z,
+  CLOSED_EXTENT, SEAL_BOUNDS, frontUvForPanel, backUvForPanel
+} from '../src/scene-geometry.js';
 
-test('chrome shield meshes have finite normals, valid triangles and a convex face',()=>{
-  const meshes=buildShieldGeometry();
-  try{
-    for(const [name,geometry] of Object.entries(meshes)){
-      const {position,normal}=geometry.attributes;
-      assert.ok(position.count>100,name);
-      assert.equal(normal.count,position.count,name);
-      assert.ok([...position.array,...normal.array].every(Number.isFinite),name);
-      const indices=geometry.index;
-      if(indices){assert.equal(indices.count%3,0,name);assert.ok([...indices.array].every(i=>i>=0&&i<position.count),name);}
-    }
-    const face=meshes.coreGeometry.attributes.position;
-    let center=-Infinity,edge=-Infinity;
-    for(let i=0;i<face.count;i++){
-      if(Math.abs(face.getX(i))<.01&&Math.abs(face.getY(i))<.01)center=Math.max(center,face.getZ(i));
-      if(Math.abs(face.getX(i))>.8)edge=Math.max(edge,face.getZ(i));
-    }
-    assert.ok(center>edge+.08,'front face must bow out from its border');
-    assert.ok(meshes.glyphGeometry.boundingBox.min.z>meshes.coreGeometry.boundingBox.max.z+.2,'lettering floats clearly ahead of the core');
-    assert.ok(meshes.coreGeometry.boundingBox.max.x<meshes.rimGeometry.boundingBox.max.x-.15,'inset core leaves a visible perimeter gap');
-  }finally{Object.values(meshes).forEach(g=>g.dispose());}
-});
+const approximately = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) < tolerance, `${actual} != ${expected}`);
 
-test('bundled Chinese outlines preserve counters without device fonts',()=>{
-  assert.equal(glyphShapes('安').reduce((n,s)=>n+s.holes.length,0),1);
-  assert.equal(glyphShapes('再').reduce((n,s)=>n+s.holes.length,0),4);
-  for(const char of '先核实放心')assert.ok(glyphShapes(char).length>0);
-  assert.throws(()=>glyphShapes('X'),/Missing local glyph/);
-});
-
-function nearestDistance(array,dimensions=3) {
-  let distance=Infinity;
-  for(let i=0;i<array.length;i+=3)for(let j=i+3;j<array.length;j+=3){
-    let squared=0;
-    for(let axis=0;axis<dimensions;axis++)squared+=(array[i+axis]-array[j+axis])**2;
-    distance=Math.min(distance,squared);
-  }
-  return Math.sqrt(distance);
+function assertGeometry(geometry, label) {
+  const { position, normal } = geometry.attributes;
+  assert.ok(position.count >= 4, label);
+  assert.equal(normal.count, position.count, label);
+  assert.ok([...position.array, ...normal.array].every(Number.isFinite), label);
+  for (let i = 0; i < normal.count; i++) approximately(Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i)), 1);
+  if (geometry.index) {
+    assert.equal(geometry.index.count % 3, 0, label);
+    assert.ok([...geometry.index.array].every(index => index >= 0 && index < position.count), label);
+  } else assert.equal(position.count % 3, 0, label);
 }
 
-for(const maximumCount of [2048,4096])test(`${maximumCount} budget produces complete, separated glyphs and regular shield particles`,()=>{
-  const a=createVoxelTargets(maximumCount),b=createVoxelTargets(maximumCount);
-  assert.ok(a.count<=maximumCount&&a.count>maximumCount*.6);
-  assert.ok(a.count<maximumCount,'the budget is a cap, never filled with duplicate depth layers');
-  assert.equal(a.cubeSize,a.pitch*.66);
-  for(const key of ['starts','ends','colors']){
-    assert.equal(a[key].length,a.count*3);
-    assert.ok([...a[key]].every(Number.isFinite));
-    assert.deepEqual(a[key],b[key]);
-  }
-  const regions=Array(6).fill(0),uniqueXY=new Set(),materials=new Set();
-  for(let i=0;i<a.count;i++){
-    const [x,y,z]=a.ends.slice(i*3,i*3+3);
-    const column=x<-.5?0:x>.5?2:1;
-    regions[(y>0?0:3)+column]++;
-    uniqueXY.add(`${x},${y}`);
-    assert.equal(z,0,'one text plane avoids overlaid cube reflections');
-    materials.add(a.colors[i*3].toFixed(2));
-  }
-  assert.ok(regions.every(n=>n>100),'all six characters remain complete at both quality levels');
-  assert.equal(uniqueXY.size,a.count);
-  assert.equal(materials.size,3,'rim, core and raised lettering retain their material regions');
-  const finalSpacing=nearestDistance(a.ends,2),shieldSpacing=nearestDistance(a.starts);
-  assert.ok(finalSpacing>=a.pitch-1e-6,'glyph neighbors retain the intended grid spacing');
-  assert.ok(finalSpacing-a.cubeSize>=a.pitch*.339,'the visible final gap is at least 33.9% of pitch');
-  assert.ok(shieldSpacing>=a.startPitch-1e-6,'structured shield points never cluster');
-  assert.ok(shieldSpacing>a.cubeSize);
+test('six-plaque seal uses bounded bevelled solids and finite flat face geometry', () => {
+  const geometry = buildSealGeometry();
+  try {
+    for (const [key, value] of Object.entries(geometry)) assertGeometry(value, key);
+    const bounds = geometry.panelBodyGeometry.boundingBox;
+    approximately(bounds.min.x, -.5); approximately(bounds.max.x, .5);
+    approximately(bounds.min.y, -.5); approximately(bounds.max.y, .5);
+    approximately(bounds.min.z, -.05); approximately(bounds.max.z, .05);
+    assert.ok(FACE_Z > bounds.max.z, 'printed face sits outside the solid cap, preventing z-fighting');
+    assert.ok(FACE_SIZE < PANEL_SIZE, 'bevel remains exposed around each printed face');
+  } finally { Object.values(geometry).forEach(value => value.dispose()); }
 });
 
-test('voxel allocation enforces its GPU budget',()=>{
-  for(const count of [0,-1,1.5,4097,Infinity])assert.throws(()=>createVoxelTargets(count),/Voxel count/);
+test('bundled Chinese outlines retain their counters without device fonts', () => {
+  assert.equal(glyphShapes('安').reduce((n, shape) => n + shape.holes.length, 0), 1);
+  assert.equal(glyphShapes('再').reduce((n, shape) => n + shape.holes.length, 0), 4);
+  for (const character of SLOGAN_CHARS) assert.ok(glyphShapes(character).length > 0);
+  assert.throws(() => glyphShapes('X'), /Missing local glyph/);
+});
+
+test('closed plaques reconstruct one continuous front image, preserving physical seams', () => {
+  const pose = sampleSealPose(0);
+  assert.deepEqual(PANEL_ORDER, [[0, 2], [1, 4], [3, 5]]);
+  for (const panel of pose.panels) {
+    const geometry = createPanelFaceGeometry(panel.id, 'front');
+    try {
+      assertGeometry(geometry, `front ${panel.id}`);
+      const { position, uv } = geometry.attributes;
+      for (let i = 0; i < position.count; i++) {
+        const reconstructedX = uv.getX(i) * CLOSED_EXTENT.width - CLOSED_EXTENT.width / 2;
+        const reconstructedY = uv.getY(i) * CLOSED_EXTENT.height - CLOSED_EXTENT.height / 2;
+        approximately(reconstructedX, panel.position[0] + position.getX(i));
+        approximately(reconstructedY, panel.position[1] + position.getY(i));
+      }
+    } finally { geometry.dispose(); }
+  }
+  const leftEdge = frontUvForPanel(0, 1, .5)[0];
+  const rightEdge = frontUvForPanel(2, 0, .5)[0];
+  approximately((rightEdge - leftEdge) * CLOSED_EXTENT.width, .05);
+  assert.ok(rightEdge > leftEdge, 'real seam and face bevel are omitted from the image instead of duplicated');
+});
+
+test('back lettering reads left-to-right and top-to-bottom after the actual half turn', () => {
+  const turn = new THREE.Matrix4().makeRotationY(Math.PI);
+  const normalTurn = new THREE.Matrix3().setFromMatrix4(turn);
+  const point = new THREE.Vector3(), normal = new THREE.Vector3();
+  for (let id = 0; id < 6; id++) {
+    const geometry = createPanelFaceGeometry(id, 'back');
+    try {
+      assertGeometry(geometry, `back ${id}`);
+      const { position, uv, normal: normals } = geometry.attributes;
+      const vertices = [];
+      for (let i = 0; i < position.count; i++) {
+        point.fromBufferAttribute(position, i).applyMatrix4(turn);
+        normal.fromBufferAttribute(normals, i).applyMatrix3(normalTurn);
+        approximately(normal.z, 1);
+        approximately(point.z, FACE_Z);
+        const localU = uv.getX(i) * 3 - id % 3;
+        const localV = uv.getY(i) * 2 - (1 - Math.floor(id / 3));
+        approximately((localU - .5) * FACE_SIZE, point.x);
+        approximately((localV - .5) * FACE_SIZE, point.y);
+        vertices.push({ x: point.x, u: localU });
+      }
+      vertices.sort((a, b) => a.x - b.x);
+      assert.ok(vertices[0].u < vertices.at(-1).u, 'left-to-right UV winding must survive two half turns');
+      const [u, v] = backUvForPanel(id, .5, .5);
+      assert.equal(Math.floor(u * 3), id % 3);
+      assert.equal(1 - Math.floor(v * 2), Math.floor(id / 3));
+    } finally { geometry.dispose(); }
+  }
+});
+
+test('mechanical terminal poses form a continuous two-column seal and the six-word reading order', () => {
+  const closed = sampleSealPose(0), open = sampleSealPose(1);
+  assert.equal(closed.panels.length, 6); assert.equal(closed.corners.length, 4);
+  const closedOrder = [...closed.panels].sort((a, b) => b.position[1] - a.position[1] || a.position[0] - b.position[0]).map(panel => panel.id);
+  assert.deepEqual(closedOrder, [0, 2, 1, 4, 3, 5]);
+  const openOrder = [...open.panels].sort((a, b) => b.position[1] - a.position[1] || a.position[0] - b.position[0]).map(panel => SLOGAN_CHARS[panel.id]);
+  assert.equal(openOrder.slice(0, 3).join(''), '先核实');
+  assert.equal(openOrder.slice(3).join(''), '再放心');
+  for (let id = 0; id < 6; id++) {
+    approximately(closed.panels[id].rotationY, 0); approximately(open.panels[id].rotationY, Math.PI);
+    approximately(closed.panels[id].position[2], 0); approximately(open.panels[id].position[2], 0);
+  }
+  assert.deepEqual(sampleSealPose(-1), closed);
+  assert.deepEqual(sampleSealPose(2), open);
+  assert.deepEqual(sampleSealPose(Number.NaN), closed);
+});
+
+function panelBox(panel) {
+  const rotation = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationY(panel.rotationY));
+  return new OBB(new THREE.Vector3(...panel.position), new THREE.Vector3(PANEL_SIZE / 2, PANEL_SIZE / 2, Math.max(PANEL_DEPTH / 2, FACE_Z)), rotation);
+}
+
+test('forward and reverse sweep keeps all rigid panels disjoint through slide, seating and flip', () => {
+  const total = 2000;
+  for (let step = 0; step <= total; step++) {
+    const p = step / total, pose = sampleSealPose(p), boxes = pose.panels.map(panelBox);
+    const reversed = sampleSealPose(1 - (1 - p));
+    for (let id = 0; id < 6; id++) {
+      assert.equal(pose.panels[id].id, reversed.panels[id].id);
+      pose.panels[id].position.forEach((value, axis) => approximately(value, reversed.panels[id].position[axis], 1e-12));
+      approximately(pose.panels[id].rotationY, reversed.panels[id].rotationY, 1e-12);
+    }
+    for (let a = 0; a < boxes.length; a++) for (let b = a + 1; b < boxes.length; b++) {
+      assert.equal(boxes[a].intersectsOBB(boxes[b], 1e-9), false, `panel ${a} overlaps ${b} at ${p}`);
+    }
+    for (const panel of pose.panels) {
+      const [x, y, z] = panel.position;
+      assert.ok([x, y, z, panel.rotationY].every(Number.isFinite));
+      const radiusX = Math.abs(Math.cos(panel.rotationY)) * .5 + Math.abs(Math.sin(panel.rotationY)) * FACE_Z;
+      const radiusZ = Math.abs(Math.sin(panel.rotationY)) * .5 + Math.abs(Math.cos(panel.rotationY)) * FACE_Z;
+      assert.ok(Math.abs(x) + radiusX <= SEAL_BOUNDS.width / 2);
+      assert.ok(Math.abs(y) + .5 <= SEAL_BOUNDS.height / 2);
+      assert.ok(Math.abs(z) + radiusZ <= SEAL_BOUNDS.depth / 2);
+      if (panel.rotationY > 0) {
+        const final = sampleSealPose(1).panels[panel.id];
+        assert.deepEqual(panel.position, final.position, 'translation must finish before any plaque flips');
+      }
+    }
+    for (const corner of pose.corners) {
+      assert.ok(Math.abs(corner.position[0]) <= SEAL_BOUNDS.width / 2);
+      assert.ok(Math.abs(corner.position[1]) <= SEAL_BOUNDS.height / 2);
+    }
+  }
+});
+
+test('UV and geometry helpers reject nonexistent plaques and sides', () => {
+  for (const id of [-1, 6, 1.5, Number.NaN]) {
+    assert.throws(() => frontUvForPanel(id, 0, 0), /Panel ID/);
+    assert.throws(() => backUvForPanel(id, 0, 0), /Panel ID/);
+    assert.throws(() => createPanelFaceGeometry(id), /Panel ID/);
+  }
+  assert.throws(() => createPanelFaceGeometry(0, 'sideways'), /Panel side/);
 });
