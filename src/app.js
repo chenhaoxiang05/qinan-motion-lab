@@ -25,11 +25,12 @@ export function moduleResult(module) {
   return {status:'below',threshold};
 }
 
-export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
+export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
   const body = $('#workspaceBody'), workspace = $('#workspace'), modal = $('#modal');
   $$('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
+  $('#closeWorkspace').innerHTML='返回主页 '+icon('close');
   $('.mini-signal').innerHTML=Array.from({length:10},(_,i)=>`<i style="height:${7+Math.sin(i*1.8)**2*15}px;animation-delay:${-i*.15}s"></i>`).join('');
   const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let paused = getStored('qinan-motion-paused','false') === 'true' || mediaQuery.matches;
@@ -40,7 +41,9 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
   let page='home', routeRevision=0, viewController=null, healthController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
-  let lastPortal=null, windowAnimation=null, toastTimer=null;
+  let lastPortal=null, windowAnimation=null, toastTimer=null, quizLayout=null;
+  const modalLayout=createLayout?.(workspace,{children:['.portal-surface'],duration:600,ease:'out(3)',properties:['borderRadius']});
+  $$('.portal-node').forEach(node=>{node.classList.add('portal-surface');node.dataset.layoutId='portal-'+node.dataset.portal;});
   const activeRequests=new Set(), ambientAnimations=[], pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
   const e=escapeHTML;
@@ -103,7 +106,7 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
   function go(next){
     if(location.hash.slice(1)===next)route();else location.hash=next;
   }
-  function disposeView(){if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
+  function disposeView(){quizLayout?.revert();quizLayout=null;if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
     const raw=location.hash.slice(1)||'home';
     const [next,rawReportId]=raw.split('/');
@@ -115,7 +118,7 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
       document.body.classList.remove('feature-open');visual.focus(false);
       if(workspace.open){
         const finish=()=>{if(revision!==routeRevision)return;workspace.close();body.innerHTML='';lastPortal?.focus({preventScroll:true});};
-        if(motionEnabled())windowAnimation=animate(workspace,{opacity:0,y:22,scale:.98,duration:210,ease:'inQuad',onComplete:finish});else finish();
+        if(motionEnabled()&&modalLayout&&lastPortal){modalLayout.update(()=>{workspace.close();lastPortal.style.visibility='';},{duration:420}).then(finish);}else finish();
       }
       resumeAmbient();return;
     }
@@ -128,15 +131,20 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
       if(!currentReport || reportId&&currentReport.id!==reportId){renderReportFromId(reportId,revision);}
       else renderReport();
     }else if(target==='check')renderCheck();else if(target==='contacts')renderContacts();else if(target==='practice')renderQuiz();else renderHistory(revision);
-    if(opening)workspace.showModal();
+    if(opening){
+      $('.workspace-surface').dataset.layoutId='portal-'+(lastPortal?.dataset.portal||target);
+      
+      if(motionEnabled()&&modalLayout&&lastPortal){modalLayout.record();workspace.showModal();lastPortal.style.visibility='hidden';windowAnimation=modalLayout.animate({duration:600});}
+      else workspace.showModal();
+    }
     // Only the first open animates the full window. Tab changes never call this.
-    if(opening&&motionEnabled())windowAnimation=animate(workspace,{opacity:[0,1],y:[38,0],scale:[.96,1],duration:540,ease:'outExpo'});
-    else {workspace.style.opacity='1';workspace.style.transform='none';}
+    if(opening&&motionEnabled()&&!(modalLayout&&lastPortal))windowAnimation=animate(workspace,{opacity:[0,1],y:[38,0],scale:[.96,1],duration:540,ease:'outExpo'});
+    else if(!opening||!motionEnabled()) {workspace.style.opacity='1';workspace.style.transform='none';}
     body.scrollTop=0;
   }
   window.addEventListener('hashchange',route);
   workspace.addEventListener('cancel',ev=>{ev.preventDefault();go('home');});
-  $('#closeWorkspace').onclick=()=>go('home');$('#backHome').onclick=()=>go('home');
+  $('#closeWorkspace').onclick=()=>go('home');
   $$('.portal-node').forEach(node=>node.addEventListener('click',()=>{lastPortal=node;}));
 
   function renderCheck(){
@@ -308,9 +316,16 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
     }
     const q=quiz[currentQuiz];
     body.innerHTML=heading('03 / SPOT THE SIGNS. KEEP YOUR PEACE.','练一点识别力。','不必成为专家。先停一停，再核实，就是重要的一步。')+
-      `<section class="surface question-card"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span id="scoreCount">已答对 ${correctCount} 题</span></div><div class="progress-track"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2>${q.title}</h2><div class="question-text">${q.text}</div><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((a,i)=>`<button class="answer" data-answer="${i}"><b>${String.fromCharCode(65+i)}</b>${a}</button>`).join('')}</div><div id="feedback"></div></section>`;
-    $$('[data-answer]').forEach(button=>button.onclick=()=>{if(answer!==null)return;answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);updateAnswer(q);});
+      `<div class="quiz-progress" aria-label="待完成题目">${quiz.map((_,i)=>i>=currentQuiz+(answer!==null?1:0)?`<span class="quiz-tile" data-question="${i}">${String(i+1).padStart(2,'0')}</span>`:'').join('')}</div><section class="surface question-card"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span id="scoreCount">已答对 ${correctCount} 题</span></div><div class="progress-track"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2>${q.title}</h2><div class="question-text">${q.text}</div><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((a,i)=>`<button class="answer" data-answer="${i}"><b>${String.fromCharCode(65+i)}</b>${a}</button>`).join('')}</div><div id="feedback"></div></section>`;
+    quizLayout=createLayout?.($('.quiz-progress'),{duration:250,ease:'outQuad',leaveTo:{transform:'translateY(-100px) scale(.25)',opacity:0,duration:350,ease:'out(3)'}});
+    $$('[data-answer]').forEach(button=>button.onclick=()=>{if(answer!==null)return;answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);updateAnswer(q);removeProgressTile();});
     if(answer!==null)updateAnswer(q);
+  }
+  function removeProgressTile(){
+    const tile=$(`[data-question="${currentQuiz}"]`);if(!tile)return;
+    const layout=quizLayout;const next=$('#nextQuestion');if(next)next.disabled=true;
+    const finish=()=>{tile.remove();if(next?.isConnected)next.disabled=false;if($('.quiz-progress')&&!$('.quiz-tile'))$('.quiz-progress').textContent='全部完成 ✓';};
+    if(motionEnabled()&&layout)layout.update(()=>tile.classList.add('is-hidden')).then(finish);else finish();
   }
   function updateAnswer(q){
     $$('[data-answer]').forEach(button=>{
@@ -321,7 +336,7 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
     $('#scoreCount').textContent=`已答对 ${correctCount} 题`;
     $('#feedback').innerHTML=`<div class="question-feedback" role="status"><b>${answer===q.correct?'✓ 这一步，让安心更近了。':'✕ 再多核实一步，会更稳妥。'}</b><br>${q.why}</div><button id="nextQuestion" class="primary">${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}</button>`;
     if(motionEnabled())animate($('#feedback'),{y:[10,0],opacity:[0,1],duration:300,ease:'outQuad'});
-    $('#nextQuestion').onclick=()=>{currentQuiz++;answer=null;renderQuiz();body.scrollTop=0;};
+    $('#nextQuestion').onclick=()=>{quizLayout?.revert();quizLayout=null;currentQuiz++;answer=null;renderQuiz();body.scrollTop=0;};
   }
 
   function updateHistoryHint(){$('#historyHint').textContent=records.length?`${records.length} 次演示，记录在这里`:'YOUR MOMENTS OF CLARITY';}
@@ -395,7 +410,13 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
   const motionChange=()=>{paused=mediaQuery.matches||getStored('qinan-motion-paused','false')==='true';syncMotion();};mediaQuery.addEventListener('change',motionChange);
   $('#modeButton').onclick=settingsModal;$('#settings').onclick=settingsModal;$('#helpButton').onclick=helpModal;$('#watchDemo').onclick=demoModal;
   $('#motionButton').onclick=()=>{toggleMotion();toast(paused?'动态效果已暂停。':'动态效果已恢复。');};
-  $('#scatterButton').onclick=()=>{if(!motionEnabled()){toast('恢复动态效果后，可以让粒子重新聚合。');return;}if(visual.burst()===false)return;const el=$('#scatterButton');utils.remove(el);animate(el,{scale:[1,.92,1],duration:600,ease:createSpring({stiffness:180,damping:15})});};
+  $('#scatterButton').onclick=async()=>{
+    const button=$('#scatterButton');button.disabled=true;
+    button.setAttribute('aria-busy','true');
+    try{const form=await visual.toggleForm();button.querySelectorAll('span')[1].textContent=form==='slogan'?'复原为盾牌':'化作安心标语';}
+    finally{button.disabled=false;button.setAttribute('aria-busy','false');}
+  };
+
   function setupPortalMotion(){
     if(motionEnabled()){
       animate('.intro-copy',{opacity:[0,1],y:[18,0],duration:1050,ease:'outExpo'});
@@ -424,6 +445,6 @@ export function initApp({animate,utils,createSpring,visual,delay=ms=>new Promise
   const afterPrint=()=>{$$('.report-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    destroy(){destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);windowAnimation?.cancel();ambientAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    destroy(){modalLayout?.revert();quizLayout?.revert();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);windowAnimation?.cancel();ambientAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

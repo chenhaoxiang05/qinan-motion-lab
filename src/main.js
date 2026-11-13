@@ -1,5 +1,5 @@
 import './style.css';
-import { animate, utils, createSpring } from 'animejs';
+import { animate, utils, createSpring, createLayout } from 'animejs';
 import { initApp } from './app.js';
 
 // Mount the usable interface first; the 3D engine is a separate lazy chunk.
@@ -9,11 +9,11 @@ const visual={
   pause(){desired.paused=true;scene?.pause();},
   resume(){desired.paused=false;scene?.resume();},
   focus(value){desired.focused=value;scene?.focus(value);},
-  burst(){return scene?.burst()??false;},
+  async toggleForm(){await sceneReady;return scene.toggleForm();},
   dispose(){disposed=true;scene?.dispose();}
 };
-const app=initApp({animate,utils,createSpring,visual});
-import('./scene.js').then(({createSanctuary})=>{
+const app=initApp({animate,utils,createSpring,createLayout,visual});
+const sceneReady=import('./scene.js').then(({createSanctuary})=>{
   if(disposed)return;
   scene=createSanctuary(document.querySelector('#world'));
   if(desired.paused)scene.pause();scene.focus(desired.focused);

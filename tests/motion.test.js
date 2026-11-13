@@ -23,7 +23,7 @@ test('the real Anime.js engine opens, pauses and switches types without replayin
   $('#type-image').click();const panel=$('#uploadPanel');
   $('#type-video').click();assert.strictEqual($('#uploadPanel'),panel);assert.equal($('#workspace').style.opacity,'1');
   $('#settings').click();$('#toggleMotion').click();$('#settingsDone').click();
-  $('#backHome').click();await new Promise(r=>setTimeout(r,300));assert.equal($('#workspace').open,false);
+  $('#closeWorkspace').click();await new Promise(r=>setTimeout(r,300));assert.equal($('#workspace').open,false);
   w.location.hash='contacts';await new Promise(r=>setTimeout(r,650));
   assert.equal($('#workspace').open,true);assert.ok(Number($('#workspace').style.opacity)>.99);assert.ok($('#contactForm'));
 });

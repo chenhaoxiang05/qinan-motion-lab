@@ -33,7 +33,7 @@ function setup(t,options={}){
 
 test('floating entry opens a window; switching material types preserves the window, panel and dropzone',async t=>{
   const {$,goto,animations,w}=setup(t);
-  assert.equal($('aside.sidebar'),null);assert.equal(w.document.querySelectorAll('.portal-node').length,4);
+  assert.equal($('#backHome'),null);assert.match($('#closeWorkspace').textContent,/返回主页/);assert.equal($('aside.sidebar'),null);assert.equal(w.document.querySelectorAll('.portal-node').length,4);
   await goto('check');
   const windowNode=$('#workspace'),panel=$('#uploadPanel'),dropzone=$('#dropzone'),count=animations.length;
   for(const type of ['video','image','chat','audio','image']){
@@ -96,7 +96,7 @@ test('contacts update their count immediately, reject duplicate numbers and conf
 
 test('quiz answers update in place and repeated clicks do not increase the score',async t=>{
   const {$,goto}=setup(t);await goto('practice');
-  const card=$('.question-card');$('[data-answer="1"]').click();
+  const card=$('.question-card');assert.equal(wrongCount(),6);function wrongCount(){return $('#workspaceBody').querySelectorAll('.quiz-tile').length;}$('[data-answer="1"]').click();assert.equal(wrongCount(),5);
   assert.strictEqual($('.question-card'),card);assert.equal($('#scoreCount').textContent,'已答对 1 题');
   $('[data-answer="1"]').click();assert.equal($('#scoreCount').textContent,'已答对 1 题');
   assert.match($('#feedback').textContent,/这一步/);$('#nextQuestion').click();assert.match($('.question-meta').textContent,/02/);
