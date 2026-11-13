@@ -1,9 +1,11 @@
 import './style.css';
+import './workspace.css';
 import { animate, utils, createSpring, createLayout } from 'animejs';
 import { initApp } from './app.js';
 
 // Mount the usable interface first; the 3D engine is a separate lazy chunk.
 let scene, disposed=false;
+document.querySelector('.scene-placeholder')?.classList.remove('is-ready');
 const desired={paused:false,focused:false,portal:null};
 const visual={
   pause(){desired.paused=true;scene?.pause();},
@@ -18,6 +20,7 @@ const app=initApp({animate,utils,createSpring,createLayout,visual});
 const sceneReady=import('./scene.js').then(({createSanctuary})=>{
   if(disposed)return;
   scene=createSanctuary(document.querySelector('#world'));
+  document.querySelector('.scene-placeholder')?.classList.add('is-ready');
   if(desired.paused)scene.pause();scene.focus(desired.focused);scene.setPortalFocus?.(desired.portal);
 }).catch(()=>{
   if(disposed)return;

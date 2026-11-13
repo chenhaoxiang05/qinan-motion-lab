@@ -2,11 +2,28 @@ import * as THREE from 'three';
 import { animate } from 'animejs';
 import glyphs from './glyphs.json' with { type: 'json' };
 import { buildShieldGeometry, createVoxelTargets } from './scene-geometry.js';
-import { screenVertex, flowFragment, liquidFragment, configureVoxelMaterial } from './scene-shaders.js';
+import { screenVertex, flowFragment, liquidFragment, configureVoxelMaterial, morphVisualState } from './scene-shaders.js';
 
 const clamp = THREE.MathUtils.clamp;
 const mobileViewport = () => window.innerWidth < 700;
-const sceneCenter = () => mobileViewport() ? Math.min(340, window.innerHeight * .48) : window.innerHeight * .53;
+export function sculpturePlacement() {
+  const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
+  const anchor = document.querySelector('#sculptureAnchor');
+  const rect = anchor?.getBoundingClientRect();
+  if (rect?.width > 0 && rect?.height > 0) return {
+    x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
+    size: Math.max(80, Math.min(rect.width * .84, rect.height * .88)),
+  };
+  return { x: width / 2, y: mobileViewport() ? Math.min(340, height * .48) : height * .53,
+    size: mobileViewport() ? Math.min(218, width * .56, height * .30) : Math.min(326, height * .39, width * .23) };
+}
+function observePlacement(callback) {
+  const anchor = document.querySelector('#sculptureAnchor');
+  const observer = typeof ResizeObserver !== 'undefined' && anchor ? new ResizeObserver(callback) : null;
+  observer?.observe(anchor);
+  window.addEventListener('scroll', callback, { passive: true });
+  return () => { observer?.disconnect(); window.removeEventListener('scroll', callback); };
+}
 
 /** A local SVG keeps the central symbol readable if WebGL cannot be initialized. */
 function createFallback(host, initialForm = 'shield') {
@@ -17,23 +34,27 @@ function createFallback(host, initialForm = 'shield') {
   const sculpture = document.createElement('div');
   sculpture.style.cssText = 'position:absolute;left:50%;transform:translate(-50%,-50%);width:210px;filter:drop-shadow(0 24px 42px #0008)';
   root.append(sculpture);
-  const shield = `<svg viewBox="0 0 200 242" style="width:100%;height:auto;stroke:none" aria-hidden="true"><defs><linearGradient id="qinan-metal" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fff"/><stop offset=".22" stop-color="#67717c"/><stop offset=".43" stop-color="#e8edf0"/><stop offset=".66" stop-color="#2c333c"/><stop offset=".88" stop-color="#dce4e7"/><stop offset="1" stop-color="#737b84"/></linearGradient><radialGradient id="qinan-glass"><stop stop-color="#303841"/><stop offset="1" stop-color="#11151a"/></radialGradient></defs><path d="M100 16C132 16 162 29 181 41C188 46 189 54 187 69C181 148 158 191 105 227Q100 231 95 227C42 191 19 148 13 69C11 54 12 46 19 41C38 29 68 16 100 16Z" fill="url(#qinan-glass)" stroke="url(#qinan-metal)" stroke-width="11"/><path d="${glyphs['安']}" transform="translate(54 151) scale(.092 -.092)" fill="url(#qinan-metal)"/></svg>`;
+  const contour = 'M100 16C132 16 162 29 181 41C188 46 189 54 187 69C181 148 158 191 105 227Q100 231 95 227C42 191 19 148 13 69C11 54 12 46 19 41C38 29 68 16 100 16Z';
+  const shield = `<svg viewBox="0 0 200 242" style="width:100%;height:auto;stroke:none" aria-hidden="true"><defs><linearGradient id="qinan-metal" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fff"/><stop offset=".22" stop-color="#67717c"/><stop offset=".43" stop-color="#e8edf0"/><stop offset=".66" stop-color="#2c333c"/><stop offset=".88" stop-color="#dce4e7"/><stop offset="1" stop-color="#737b84"/></linearGradient><radialGradient id="qinan-glass"><stop stop-color="#303841"/><stop offset="1" stop-color="#11151a"/></radialGradient></defs><path d="${contour}" transform="translate(17 20) scale(.83)" fill="url(#qinan-glass)"/><path d="${contour}" fill="none" stroke="url(#qinan-metal)" stroke-width="5"/><path d="${glyphs['安']}" transform="translate(54 151) scale(.092 -.092)" fill="url(#qinan-metal)"/></svg>`;
   const slogan = `<svg viewBox="0 0 320 222" style="width:100%;height:auto;stroke:none" aria-hidden="true">${['先核实', '再放心'].map((row, r) => [...row].map((ch, c) => `<path d="${glyphs[ch]}" transform="translate(${c * 105 + 6} ${r * 115 + 89}) scale(.094 -.094)" fill="#e8edef"/>`).join('')).join('')}</svg>`;
   const render = () => {
     sculpture.className = form === 'shield' ? 'scene-fallback-shield' : 'scene-fallback-slogan';
-    sculpture.style.top = `${sceneCenter()}px`;
-    sculpture.style.width = `${mobileViewport() ? (form === 'shield' ? 155 : 220) : (form === 'shield' ? 232 : 310)}px`;
+    const placement = sculpturePlacement();
+    sculpture.style.top = `${placement.y}px`;
+    sculpture.style.left = `${placement.x}px`;
+    sculpture.style.width = `${placement.size * (form === 'shield' ? .77 : 1)}px`;
     sculpture.innerHTML = form === 'shield' ? shield : slogan;
   };
   host.append(root);
   host.classList.add('webgl-ready');
   window.addEventListener('resize', render);
+  const detachPlacement = observePlacement(render);
   render();
   return {
     pause() {}, resume() {}, focus(value) { root.style.opacity = value ? '.36' : '1'; },
     setPortalFocus() {}, pointerPulse() {},
     async toggleForm() { form = form === 'shield' ? 'slogan' : 'shield'; render(); return form; },
-    dispose() { window.removeEventListener('resize', render); root.remove(); host.classList.remove('webgl-ready'); }
+    dispose() { detachPlacement(); window.removeEventListener('resize', render); root.remove(); host.classList.remove('webgl-ready'); }
   };
 }
 
@@ -73,6 +94,8 @@ export function createSanctuary(host) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   renderer.autoClear = false;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const disposables = new Set();
   const own = resource => { disposables.add(resource); return resource; };
@@ -84,6 +107,8 @@ export function createSanctuary(host) {
   group.add(shield); scene.add(group);
   let fallback, disposed = false;
   let raf = 0, elapsed = 0, last = 0, centerY = 0, pulseAt = -100;
+  let currentQuality = 0, geometries, cube, detachPlacement = () => {};
+  const targetCache = new Map();
   let paused = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let focused = false, form = 'shield', transition = null, transitionTarget = null;
   let transitionPromise = null, finishTransition = null;
@@ -108,10 +133,13 @@ export function createSanctuary(host) {
     scene.environment = environment.texture;
     scene.environmentIntensity = 1.05;
     const fill = new THREE.HemisphereLight(0xe4eaf1, 0x181a1e, 1.1); scene.add(fill);
-    const key = new THREE.DirectionalLight(0xf7fcff, 3.2); key.position.set(-3.5, 4.5, 5); scene.add(key);
+    const key = new THREE.DirectionalLight(0xf7fcff, 3.2); key.position.set(-3.5, 4.5, 5);
+    key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
+    Object.assign(key.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: .1, far: 20 });
+    key.shadow.bias = -.0004; key.shadow.normalBias = .012; own(key.shadow); scene.add(key);
     const edge = new THREE.DirectionalLight(0xaebdcf, 1.8); edge.position.set(4, -.5, 2); scene.add(edge);
 
-    const geometries = buildShieldGeometry();
+    geometries = buildShieldGeometry();
     Object.values(geometries).forEach(own);
     const rim = own(new THREE.MeshPhysicalMaterial({ color: 0xe3e9ed, metalness: 1, roughness: .19, clearcoat: 1, clearcoatRoughness: .12, envMapIntensity: 1.2 }));
     const core = own(new THREE.MeshPhysicalMaterial({ color: 0x171d25, metalness: .86, roughness: .29, clearcoat: 1, clearcoatRoughness: .15, envMapIntensity: .75 }));
@@ -120,38 +148,12 @@ export function createSanctuary(host) {
     solidMaterials = [rim, core, letter, inset];
     shield.add(new THREE.Mesh(geometries.rimGeometry, rim), new THREE.Mesh(geometries.coreGeometry, core), new THREE.Mesh(geometries.glyphGeometry, letter), new THREE.Mesh(geometries.accentGeometry, inset));
     // Render front lettering after the face while a morph fades out the solid shell.
-    shield.children.forEach((mesh, index) => { mesh.renderOrder = index; });
+    shield.children.forEach((mesh, index) => { mesh.renderOrder = index; mesh.castShadow = true; mesh.receiveShadow = true; });
 
-    const count = mobileViewport() ? 2048 : 4096;
-    const targets = createVoxelTargets(count, geometries);
-    const cube = own(new THREE.BoxGeometry(.034, .034, .034));
-    cube.setAttribute('aStart', new THREE.InstancedBufferAttribute(targets.starts, 3));
-    cube.setAttribute('aEnd', new THREE.InstancedBufferAttribute(targets.ends, 3));
-    const arcs = new Float32Array(count * 3), seeds = new Float32Array(count);
-    let seed = 7291;
-    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
-    for (let i = 0; i < count; i++) {
-      seeds[i] = random();
-      const angle = random() * Math.PI * 2, radius = .45 + random() * 1.4;
-      arcs.set([Math.cos(angle) * radius, Math.sin(angle) * radius * .75, (random() - .5) * 2.2], i * 3);
-    }
-    cube.setAttribute('aArc', new THREE.InstancedBufferAttribute(arcs, 3));
-    cube.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1));
-    voxelMaterial = own(new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: .84, roughness: .25, transparent: true, depthWrite: true, envMapIntensity: 1.1 }));
+    voxelMaterial = own(new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: .78, roughness: .3, depthWrite: true, envMapIntensity: 1.05 }));
     voxelUniforms = { uProgress: { value: 0 } };
     configureVoxelMaterial(voxelMaterial, voxelUniforms);
-    voxels = own(new THREE.InstancedMesh(cube, voxelMaterial, count));
-    const identity = new THREE.Matrix4(), color = new THREE.Color();
-    for (let i = 0; i < count; i++) {
-      voxels.setMatrixAt(i, identity);
-      voxels.setColorAt(i, color.fromArray(targets.colors, i * 3));
-    }
-    voxels.instanceMatrix.needsUpdate = true;
-    voxels.instanceColor.needsUpdate = true;
-    voxels.visible = false;
-    voxels.frustumCulled = false;
-    voxels.renderOrder = 4;
-    group.add(voxels);
+    rebuildVoxels(mobileViewport() ? 2048 : 4096);
 
     const plane = own(new THREE.PlaneGeometry(2, 2));
     screenCamera = new THREE.Camera();
@@ -180,28 +182,58 @@ export function createSanctuary(host) {
     return createFallback(host);
   }
 
+  function rebuildVoxels(maximum) {
+    if (currentQuality === maximum) return;
+    settle();
+    if (!targetCache.has(maximum)) targetCache.set(maximum, createVoxelTargets(maximum, geometries));
+    const targets = targetCache.get(maximum), count = targets.count;
+    if (voxels) { group.remove(voxels); voxels.dispose(); disposables.delete(voxels); }
+    if (cube) { cube.dispose(); disposables.delete(cube); }
+    cube = own(new THREE.BoxGeometry(targets.cubeSize, targets.cubeSize, targets.cubeSize));
+    cube.setAttribute('aStart', new THREE.InstancedBufferAttribute(targets.starts, 3));
+    cube.setAttribute('aEnd', new THREE.InstancedBufferAttribute(targets.ends, 3));
+    const arcs = new Float32Array(count * 3), seeds = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const x = targets.starts[i * 3], y = targets.starts[i * 3 + 1];
+      const angle = Math.atan2(y, x), radius = .35 + .45 * (Math.sin(i * .17) * .5 + .5);
+      seeds[i] = (i % 17) / 17;
+      // Neighbouring grid cells follow one bent sheet instead of independent explosions.
+      arcs.set([Math.cos(angle) * radius, Math.sin(angle) * radius * .55, Math.sin(angle * 2) * .32], i * 3);
+    }
+    cube.setAttribute('aArc', new THREE.InstancedBufferAttribute(arcs, 3));
+    cube.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1));
+    voxels = own(new THREE.InstancedMesh(cube, voxelMaterial, count));
+    const identity = new THREE.Matrix4(), color = new THREE.Color();
+    for (let i = 0; i < count; i++) {
+      voxels.setMatrixAt(i, identity); voxels.setColorAt(i, color.fromArray(targets.colors, i * 3));
+    }
+    voxels.instanceMatrix.needsUpdate = true; voxels.instanceColor.needsUpdate = true;
+    voxels.frustumCulled = false; voxels.renderOrder = 4;
+    group.add(voxels); currentQuality = maximum; updateMorph();
+  }
+
+  function opacityMode(material, opacity) {
+    const transparent = opacity < .999;
+    if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }
+    material.opacity = opacity; material.depthWrite = !transparent;
+  }
   function updateMorph() {
     voxelUniforms.uProgress.value = state.progress;
-    const opacity = 1 - THREE.MathUtils.smoothstep(state.progress, 0, .15);
-    const intermediate = opacity < .999;
-    solidMaterials.forEach(material => {
-      if (material.transparent !== intermediate) { material.transparent = intermediate; material.needsUpdate = true; }
-      material.opacity = opacity;
-      material.depthWrite = !intermediate;
-    });
-    shield.visible = opacity > .001;
-    voxelMaterial.opacity = THREE.MathUtils.smoothstep(state.progress, 0, .06);
-    voxels.visible = state.progress > 0;
+    const visual = morphVisualState(state.progress);
+    solidMaterials.forEach(material => opacityMode(material, visual.solidOpacity));
+    shield.visible = visual.solidOpacity > .001;
+    opacityMode(voxelMaterial, visual.voxelOpacity);
+    voxels.visible = visual.voxelOpacity > .001;
   }
 
   function draw(delta = 0) {
     if (disposed || fallback || document.hidden) return;
     const motion = paused || focused ? 0 : 1;
     focusCurrent.lerp(focusTarget, delta > 0 ? 1 - Math.exp(-delta * 4) : 1);
-    const sloganWeight = state.progress;
+    const sloganWeight = morphVisualState(state.progress).travel;
     group.rotation.set(
-      (pitch + Math.sin(elapsed * .35) * .028 - focusCurrent.y * .09) * (1 - sloganWeight * .8),
-      (yaw + Math.sin(elapsed * .26) * .11 + focusCurrent.x * .12) * (1 - sloganWeight * .9),
+      (pitch + .035 + Math.sin(elapsed * .35) * .028 - focusCurrent.y * .09) * (1 - sloganWeight),
+      (yaw - .12 + Math.sin(elapsed * .26) * .07 + focusCurrent.x * .12) * (1 - sloganWeight),
       Math.sin(elapsed * .18) * .015 * (1 - sloganWeight)
     );
     group.position.y = centerY + Math.sin(elapsed * .65) * .035 * motion;
@@ -240,21 +272,27 @@ export function createSanctuary(host) {
   function stop() { cancelAnimationFrame(raf); raf = 0; last = 0; }
   function settle() { if (transitionTarget) { transition?.cancel(); finishTransition?.(); } }
 
+  function placeSculpture() {
+    if (disposed || fallback) return;
+    const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
+    const placement = sculpturePlacement();
+    const frustumHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.position.z;
+    centerY = (.5 - placement.y / height) * frustumHeight;
+    group.position.x = (placement.x / width - .5) * frustumHeight * camera.aspect;
+    group.scale.setScalar(placement.size / height * frustumHeight / 3);
+    backgroundUniforms.uCenter.value.set(placement.x / width, 1 - placement.y / height);
+    draw();
+  }
   function resize() {
-    if (disposed) return;
+    if (disposed || fallback) return;
     const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobileViewport() ? 1.25 : 1.5));
     renderer.setSize(width, height);
     camera.aspect = width / height; camera.updateProjectionMatrix();
-    const frustumHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.position.z;
-    centerY = (.5 - sceneCenter() / height) * frustumHeight;
-    // Reserve the top title and lower action row; the slogan is slightly wider than the shield.
-    const targetPixels = mobileViewport() ? Math.min(218, width * .56, height * .30) : Math.min(326, height * .39, width * .23);
-    group.scale.setScalar(targetPixels / height * frustumHeight / 3);
     backgroundUniforms.uResolution.value.set(width, height);
-    backgroundUniforms.uCenter.value.set(.5, 1 - sceneCenter() / height);
     flowUniforms.uAspect.value = width / height;
-    draw();
+    rebuildVoxels(mobileViewport() ? 2048 : 4096);
+    placeSculpture();
   }
 
   function pointerMove(event) {
@@ -273,8 +311,8 @@ export function createSanctuary(host) {
   }
   function pointerDown(event) {
     if (paused || focused || transition || event.button !== 0) return;
-    const radius = mobileViewport() ? 130 : 190;
-    if (Math.hypot(event.clientX - window.innerWidth / 2, event.clientY - sceneCenter()) > radius) return;
+    const placement = sculpturePlacement(), radius = placement.size * .56;
+    if (Math.hypot(event.clientX - placement.x, event.clientY - placement.y) > radius) return;
     dragging = true; dragPointer = event.pointerId;
     previousDrag = { x: event.clientX, y: event.clientY };
     canvas.setPointerCapture?.(event.pointerId);
@@ -285,16 +323,17 @@ export function createSanctuary(host) {
     dragging = false; dragPointer = null; previousDrag = null;
   }
   function visibility() {
-    if (document.hidden) { stop(); transition?.pause(); }
-    else { if (!paused && !focused) transition?.resume(); draw(); run(); }
+    if (document.hidden) { settle(); stop(); }
+    else { placeSculpture(); run(); }
   }
-  function pulse(x = .5, y = 1 - sceneCenter() / window.innerHeight) {
+  function pulse(x = sculpturePlacement().x / window.innerWidth, y = 1 - sculpturePlacement().y / window.innerHeight) {
     if (fallback) return fallback.pointerPulse(x, y);
     if (disposed || paused || focused) return;
     backgroundUniforms.uPulseOrigin.value.set(clamp(Number.isFinite(x) ? x : .5, 0, 1), clamp(Number.isFinite(y) ? y : .5, 0, 1));
     pulseAt = elapsed; run();
   }
   function detachListeners() {
+    detachPlacement();
     window.removeEventListener('pointermove', pointerMove);
     window.removeEventListener('pointerup', pointerUp);
     window.removeEventListener('pointercancel', pointerUp);
@@ -305,7 +344,7 @@ export function createSanctuary(host) {
   }
   function contextLost(event) {
     event.preventDefault(); settle(); stop(); detachListeners(); cleanupResources();
-    fallback = createFallback(host, form);
+    fallback = createFallback(host, form); fallback.focus(focused);
   }
   window.addEventListener('pointermove', pointerMove, { passive: true });
   window.addEventListener('pointerup', pointerUp);
@@ -314,6 +353,7 @@ export function createSanctuary(host) {
   document.addEventListener('visibilitychange', visibility);
   canvas.addEventListener('pointerdown', pointerDown);
   canvas.addEventListener('webglcontextlost', contextLost);
+  detachPlacement = observePlacement(placeSculpture);
   resize();
   host.classList.add('webgl-ready');
   run();
@@ -351,10 +391,14 @@ export function createSanctuary(host) {
         updateMorph(); draw(); resolve(form);
       };
       if (paused || focused || document.hidden) finishTransition();
-      else transition = animate(state, {
-        progress: transitionTarget === 'slogan' ? 1 : 0, duration: 1850, ease: 'inOut(3)',
-        onUpdate: updateMorph, onComplete: () => finishTransition?.()
-      });
+      else {
+        try {
+          transition = animate(state, {
+            progress: transitionTarget === 'slogan' ? 1 : 0, duration: 1500, ease: 'linear',
+            onUpdate: updateMorph, onComplete: () => finishTransition?.()
+          });
+        } catch { finishTransition?.(); }
+      }
       return promise;
     },
     dispose() {

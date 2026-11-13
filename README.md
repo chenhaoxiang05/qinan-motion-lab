@@ -1,15 +1,19 @@
-# 亲安 QINAN v4
+# 亲安 QINAN v5 · Experimental
+
+v5 实验分支：修复文字可见性与动画生命周期，重做分层盾牌、稀疏体素和非对称首页。**真实浏览器视觉验收待完成，线上站点和 main 仍保留 v4。**
 
 ## 本次更新
 
-- 黑银液态视觉：弧面金属盾框、烟灰色凸面内芯、真正立体的本地「安」字轮廓，反光来自程序生成的摄影棚环境。
-- 背景使用 GPU 液态光带与鼠标流场；悬浮入口的鼠标/键盘焦点会影响场景，体素切换会触发涟漪。
-- 盾牌与「先核实／再放心」双行标语之间可逆重组，GPU 实例化最多 4096 个体素，移动端初始 2048 个。
-- 收回顺序：内容淡出 90ms → 窗口形变 420ms → 入口文字淡入 120ms。背景遮罩保留到收回完成，漂浮与倾斜动画随后恢复。
-- 展开、打开、收回、关闭四态控制器统一管理时间线；连续点击只保留最新目标，重复关闭、Esc、中途暂停和组件销毁均有清理。
-- 保留四个悬浮入口、右上角唯一返回按钮、答题编号退场、材料类型原位切换、联系人和记录。无 WebGL 时保留本地 SVG 盾牌与标语切换。
+- 窗口通过独立空外壳形变，真实正文不参与布局快照。原生 dialog 保持打开直到收回结束。
+- 已作答题目的解析重开时直接显示；窗口及设置/帮助弹窗统一处理关闭、暂停、切后台、失效回调与动画异常。
+- 体素按实际字形生成：桌面 2610、移动端 2018 个，单层排列，方块边长为网格间距的 66%，取消重复叠层。
+- 1500ms 三段重组：200ms 分解、900ms 迁移、400ms 归位。盾牌采用薄银框、内凹烟灰芯和分离的立体「安」字。
+- 大字海报构图、错位悬浮入口、局部折射光带与指针点阵。功能页统一字号、留白和触控区域。
+- 盾牌位置跟随页面中的布局锚点，滚动与缩放时保持对齐；WebGL 失败保留本地 SVG 盾牌与标语。
 
-## 运行
+## 运行与检查
+
+推荐 Node.js 22.12+ 或 Node.js 24 LTS。
 
 ```sh
 npm ci
@@ -19,23 +23,23 @@ npm test
 npm run build
 ```
 
-静态产物在 dist/。保留 hash 路由、联系人 qinan-contacts 本地存储及原有 /api 接口。默认交互演示模式，未附带模型后端。Three.js 延迟加载，功能页面先挂载；中文轮廓和字体均在本地，许可见 public/licenses。
+构建产物在 dist/。没有新增运行时依赖，Three.js 继续延迟加载。中文轮廓与字体均为本地资源；许可位于 public/licenses。
 
-## 验证范围
+保留原有 hash 路由、联系人 qinan-contacts 本地存储和 /api 接口。默认交互演示模式，仓库不包含模型后端。
 
-28 个自动化检查通过，包括上传/联系人/报告/答题回归、动画生命周期、真实 Anime.js 基础动画与 createLayout 无布局变化分支、几何法线/索引/字形孔洞、移动端与桌面体素目标及 WebGL 失败降级。语法检查和生产构建通过。
+## 验证边界与发布
 
-真实 createLayout 检查在 JSDOM 中主动完成时间线；它不具备浏览器的布局与合成能力，不能证明收回时没有视觉闪烁。当前环境浏览器工具无法启动，WebGL 观感、真实弹窗合成和逐帧动效仍未完成浏览器验收。
+37 项自动化检查、语法检查和生产构建通过。自动化覆盖业务回归、真实 Anime.js 在 JSDOM 中的生命周期、文字消失复现、异常恢复、体素网格间距与字形覆盖、shader 注入和 SVG 降级。JSDOM 不具备真实浏览器布局与 GPU 合成能力，不能证明视觉闪烁已消失，也不能验证 WebGL 的最终观感或帧率。
 
-## 设计与动效参考
+本次浏览器连接启动失败，错误为 `the gaas-browser node_repl sandbox cannot be disabled`。因此只推送实验分支，不覆盖现有站点、不创建正式 v5 标签。完成 [浏览器验收](docs/V5-ACCEPTANCE.md) 后再合并 main、标记 v5.0.0，并部署。
 
-- [React Bits / Liquid Chrome](https://www.reactbits.dev/backgrounds/liquid-chrome)：液态金属背景的视觉方向。
-- [Codrops / Akaru 2019](https://tympanus.net/codrops/2019/12/30/case-study-akaru-2019/)：通过材质与交互塑造主视觉。
-- [Codrops / Phantom Land](https://tympanus.net/codrops/2025/06/30/invisible-forces-the-making-of-phantom-lands-interactive-grid-and-3d-face-particle-system/)：场景、指针与粒子的联动思路。
-- [Anime.js / Animate modal dialog](https://animejs.com/documentation/layout/usage/animate-modal-dialog/)：原生 dialog 的共享布局。
-- [Anime.js / Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation/)：答题进度的布局退场。
+## 参考与授权
 
-本项目自行实现背景 shader、盾牌建模与场景交互，没有远程拉取上述网站的素材。
+- [Rare UI / Folder](https://www.rareui.com/components/foldercomponent)：层叠入口的交互参考。
+- [Rare UI / Inline AI Status](https://www.rareui.com/components/aistatus)：核验状态的反馈节奏参考。
+- [Anime.js](https://animejs.com/)：窗口外壳、局部反馈和答题布局退场。
+
+Rare UI 的组件带有额外署名和再分发条款。本次仅参考交互思路，没有复制组件源码、引入其注册表或增加 React 运行时；本项目自主代码继续使用 MIT 许可证。
 
 ## 在其他设备继续开发
 
@@ -44,6 +48,7 @@ npm run build
 ```sh
 git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
 cd qinan-motion-lab
+git switch v5-experimental
 npm ci
 npm run dev
 ```
