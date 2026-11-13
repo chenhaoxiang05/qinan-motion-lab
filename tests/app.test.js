@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {JSDOM} from 'jsdom';
 import {initApp,moduleResult} from '../src/app.js';
+import {quiz} from '../src/quiz.js';
 
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 const tick=()=>new Promise(r=>setTimeout(r,8));
@@ -21,14 +22,14 @@ function setup(t,options={}){
   for(const key of keys){previous[key]=globalThis[key];globalThis[key]=key==='innerWidth'?1440:w[key];}
   let objectCount=0;const revoked=[];URL.createObjectURL=()=>`blob:test-${++objectCount}`;URL.revokeObjectURL=url=>revoked.push(url);
   const animations=[];
-  const motion={animate(target,params){animations.push({target,params});if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
+  const motion={animate(target,params){animations.push({target,params});if(options.animate)return options.animate(target,params);if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
   const visual={pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){},...options.visual};
-  const app=initApp({...motion,visual,...(options.delay?{delay:options.delay}:{})});
+  const app=initApp({...motion,createLayout:options.createLayout,visual,islands:options.islands,startReady:options.startReady,...(options.delay?{delay:options.delay}:{})});
   const $=s=>w.document.querySelector(s);
   const goto=async hash=>{w.location.hash=hash;await tick();};
   const selectFile=async file=>{Object.defineProperty($('#fileInput'),'files',{value:[file],configurable:true});$('#fileInput').dispatchEvent(new w.Event('change'));await tick();};
   t.after(()=>{app.destroy();w.close();for(const key of keys)globalThis[key]=previous[key];assert.deepEqual(errors,[],'No uncaught UI errors');});
-  return {w,$,goto,selectFile,animations,revoked};
+  return {w,$,goto,selectFile,animations,revoked,app};
 }
 
 test('floating entry opens a window; switching material types preserves the window, panel and dropzone',async t=>{
@@ -156,4 +157,185 @@ test('report logic respects per-segment thresholds and uncertain image scores',(
   assert.equal(moduleResult({status:'completed',score:.008,threshold:.5,sensitivity_threshold:.007}).status,'uncertain');
   assert.equal(moduleResult({status:'failed',score:.9}).status,'unavailable');
   assert.equal(moduleResult({status:'completed',score:.4,threshold:.5,secondary_check:{score:.65,threshold:.7}}).status,'below');
+});
+
+function trackedIslands(){
+  const uploads=[],statuses=[];
+  const mount=(list)=>(host,initial)=>{
+    const entry={host,props:initial,updates:[initial],destroyed:false,connectedOnDestroy:false};list.push(entry);
+    if(list===uploads){
+      host.innerHTML='<button data-folder="true">选择文件</button><button data-remove-file="true">移除文件</button>';
+      host.querySelector('[data-folder]').onclick=()=>entry.props.onChoose();
+      host.querySelector('[data-remove-file]').onclick=()=>entry.props.onRemove();
+    }
+    return {update(props){entry.props={...entry.props,...props};entry.updates.push(entry.props);},destroy(){entry.destroyed=true;entry.connectedOnDestroy=host.isConnected;host.replaceChildren();}};
+  };
+  return {uploads,statuses,mountUpload:mount(uploads),mountStatus:mount(statuses)};
+}
+
+function drag(w,node,event,files=[]){
+  const ev=new w.Event(event,{bubbles:true,cancelable:true});
+  Object.defineProperty(ev,'dataTransfer',{value:{types:['Files'],files,dropEffect:'none'}});
+  node.dispatchEvent(ev);return ev;
+}
+
+test('folder second phase updates before the same click opens the picker once; cancel preserves selection',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile,revoked}=setup(t,{islands});await goto('check');$('#type-image').click();
+  await selectFile(new w.File(['image'],'kept.png',{type:'image/png'}));
+  const upload=islands.uploads[0],url=upload.props.url;let clicks=0;
+  $('#fileInput').click=()=>{clicks++;assert.equal(upload.props.open,true,'second phase is visible in the input click stack');};
+  $('[data-folder]').click();assert.equal(clicks,1);assert.equal(upload.props.file.name,'kept.png');
+  $('[data-folder]').click();assert.equal(clicks,1,'pending native picker cannot be opened twice');
+  $('#fileInput').dispatchEvent(new w.Event('cancel'));assert.equal(upload.props.open,false);
+  assert.equal(upload.props.file.name,'kept.png');assert.equal(upload.props.url,url);assert.equal(revoked.length,0);
+  assert.equal($('#analyzeButton').disabled,false);
+  $('[data-folder]').click();assert.equal(clicks,2);assert.equal($('#fileInput').value,'');
+  await selectFile(upload.props.file);assert.equal(upload.props.file.name,'kept.png');assert.equal(revoked.length,1,'same file can be selected again with a fresh preview');
+});
+
+test('empty dropzone keyboard and background clicks activate once; nested drag events stay open until the last leave',async t=>{
+  const islands=trackedIslands();const {$,goto,w}=setup(t,{islands});await goto('check');
+  const zone=$('#dropzone'),upload=islands.uploads[0];let clicks=0;$('#fileInput').click=()=>clicks++;
+  zone.click();assert.equal(clicks,1);$('#fileInput').dispatchEvent(new w.Event('cancel'));
+  zone.dispatchEvent(new w.KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));assert.equal(clicks,2);$('#fileInput').dispatchEvent(new w.Event('cancel'));
+  const child=$('[data-folder]');drag(w,zone,'dragenter');drag(w,child,'dragenter');
+  drag(w,child,'dragleave');assert.equal(upload.props.open,true);assert.equal(zone.classList.contains('dragover'),true);
+  drag(w,zone,'dragleave');assert.equal(upload.props.open,false);assert.equal(zone.classList.contains('dragover'),false);
+  drag(w,zone,'dragenter');drag(w,child,'drop',[new w.File(['audio'],'voice.mp3',{type:'audio/mpeg'})]);
+  assert.equal(clicks,2,'drop never opens the native picker');assert.equal(upload.props.file.name,'voice.mp3');assert.equal(upload.props.open,false);
+});
+
+test('upload islands update in place, ignore stale preview errors and unmount before the view disappears',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile}=setup(t,{islands});await goto('check');
+  const upload=islands.uploads[0];$('#type-image').click();assert.equal(islands.uploads.length,1);
+  await selectFile(new w.File(['image'],'first.png',{type:'image/png'}));const staleError=upload.props.onPreviewError;
+  await selectFile(new w.File(['image'],'second.png',{type:'image/png'}));staleError();assert.equal($('#fileError').textContent,'');
+  $('#motionButton').click();assert.equal(upload.props.paused,true);
+  upload.props.onPreviewError();assert.match($('#fileError').textContent,/无法预览/);
+  await goto('contacts');assert.equal(upload.destroyed,true);assert.equal(upload.connectedOnDestroy,true);
+  staleError();assert.ok($('#contactForm'));assert.equal($('#fileError'),null);
+});
+
+test('drop validation preserves an existing file when multiple or oversized files arrive',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile,revoked}=setup(t,{islands});await goto('check');
+  const first=new w.File(['audio'],'first.mp3',{type:'audio/mpeg'});await selectFile(first);
+  const zone=$('#dropzone'),upload=islands.uploads[0];
+  drag(w,zone,'drop',[first,new w.File(['audio'],'second.mp3')]);assert.match($('#fileError').textContent,/一个文件/);
+  const large=new w.File(['audio'],'large.mp3');Object.defineProperty(large,'size',{value:104857601});drag(w,zone,'drop',[large]);
+  assert.match($('#fileError').textContent,/100MB/);assert.equal(upload.props.file,first);assert.equal(revoked.length,0);
+});
+
+test('startup defers direct hash routes and entrance motion, including hash changes, then opens the latest route',async t=>{
+  const ready=pending();const {$,goto,animations}=setup(t,{url:'https://qinan.test/#check',startReady:ready.promise});
+  assert.equal($('#workspace').open,false);assert.equal($('#dropzone'),null);assert.equal(animations.length,0);
+  await goto('practice');assert.equal($('#workspace').open,false);
+  ready.resolve();await tick();assert.equal($('#workspace').open,true);assert.ok($('.question-card'));assert.ok(animations.length>0);
+});
+
+test('late optional islands hydrate an already usable native upload after startup skip',async t=>{
+  const islands={};const {$,goto,app}=setup(t,{islands});await goto('check');assert.ok($('#chooseFile'));
+  const ready=trackedIslands();Object.assign(islands,ready);app.refreshIslands();
+  assert.equal(ready.uploads.length,1);assert.ok($('[data-folder]'));assert.equal($('#chooseFile'),null);
+});
+
+test('inline status follows actual demo stages and is explicitly labeled as a simulation',async t=>{
+  const islands=trackedIslands(),waits=[];const {$}=setup(t,{islands,delay:()=>new Promise(r=>waits.push(r))});
+  $('#watchDemo').click();$('#runDemo').click();await tick();
+  const status=islands.statuses[0];assert.equal(status.props.state,'thinking');assert.match(status.props.detail,/交互演示/);
+  waits[0]();await tick();assert.equal(status.props.state,'analyzing');
+  waits[1]();await tick();assert.equal(status.props.state,'writing');
+  $('#motionButton').click();assert.equal(status.props.paused,true);
+  waits[2]();await tick();assert.equal(status.destroyed,true);assert.equal(status.connectedOnDestroy,true);assert.ok($('#exportReport'));
+});
+
+test('picker focus-return fallback settles the folder without discarding the previous file',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile,revoked}=setup(t,{islands});await goto('check');
+  await selectFile(new w.File(['voice'],'voice.mp3',{type:'audio/mpeg'}));
+  const upload=islands.uploads[0];$('#fileInput').click=()=>{};$('[data-folder]').click();
+  w.dispatchEvent(new w.Event('focus'));await new Promise(resolve=>setTimeout(resolve,280));
+  assert.equal(upload.props.open,false);assert.equal(upload.props.file.name,'voice.mp3');assert.equal(revoked.length,0);
+  assert.equal($('#analyzeButton').disabled,false);
+});
+
+
+function trackedPracticeIslands(){
+  const counters=[],faqs=[];
+  const mount=list=>(host,props)=>{
+    const entry={host,props:{...props},updates:[],destroyed:false,connectedOnDestroy:false};list.push(entry);
+    host.textContent=list===counters?String(props.value):'更多核实提醒';
+    return {update(next){entry.props={...entry.props,...next};entry.updates.push(entry.props);},destroy(){entry.destroyed=true;entry.connectedOnDestroy=host.isConnected;host.replaceChildren();}};
+  };
+  return {counters,faqs,mountCounter:mount(counters),mountFaq:mount(faqs)};
+}
+
+test('practice preserves the frame, queue and counter across all six cases and builds an actual wrong-first review',async t=>{
+  const islands=trackedPracticeIslands();const {$,goto,w}=setup(t,{islands});await goto('practice');
+  const frame=$('.practice-frame'),queue=$('.quiz-progress'),stage=$('#practiceStage'),counterHost=$('#practiceCounter');
+  assert.equal(queue.querySelectorAll('.ticket-title').length,6);assert.match(queue.textContent,/换号求助/);
+  const mistakes=new Set([1,4]);let score=0;
+  for(let i=0;i<quiz.length;i++){
+    const q=quiz[i];assert.match($('#practiceMaterial').textContent,/虚构情景/);assert.equal($('#practiceMaterial button, #practiceMaterial audio, #practiceMaterial video'),null,'fictional media has no pretend playback');
+    assert.equal($('.material-segment.is-clue'),null);
+    const chosen=mistakes.has(i)?(q.correct+1)%3:q.correct;$(`[data-answer="${chosen}"]`).click();if(!mistakes.has(i))score++;
+    assert.equal(islands.counters[0].props.value,score);assert.equal(w.document.querySelectorAll('.quiz-tile').length,5-i);
+    assert.ok($('.material-segment.is-clue'));assert.equal($('#materialClues').hidden,false);
+    assert.equal(islands.faqs.at(-1).props.items[0].id,q.reviewQA.id);
+    const faq=islands.faqs.at(-1);$('#nextQuestion').click();assert.equal(faq.destroyed,true);assert.equal(faq.connectedOnDestroy,true);
+    assert.strictEqual($('.practice-frame'),frame);assert.strictEqual($('.quiz-progress'),queue);assert.strictEqual($('#practiceStage'),stage);assert.strictEqual($('#practiceCounter'),counterHost);
+  }
+  assert.equal(islands.counters.length,1,'the animated score island persists between questions and completion');
+  assert.match($('.practice-result-score').textContent,/4 \/ 6/);
+  assert.deepEqual(islands.faqs.at(-1).props.items.slice(0,2).map(item=>item.id),[quiz[1].reviewQA.id,quiz[4].reviewQA.id]);
+  assert.equal(islands.faqs.at(-1).props.items.length,6);
+  $('#restartQuiz').click();assert.equal(islands.counters[0].destroyed,true);assert.equal(islands.counters[1].props.value,0);assert.equal(w.document.querySelectorAll('.quiz-tile').length,6);
+});
+
+test('a perfect round still offers all six practical review tips',async t=>{
+  const islands=trackedPracticeIslands();const {$,goto}=setup(t,{islands,reduced:true});await goto('practice');
+  for(const q of quiz){$(`[data-answer="${q.correct}"]`).click();$('#nextQuestion').click();}
+  assert.match($('.practice-result-score').textContent,/6 \/ 6/);assert.match($('.practice-review-list').textContent,/六条核实提醒/);
+  assert.deepEqual(islands.faqs.at(-1).props.items.map(item=>item.id),quiz.map(q=>q.reviewQA.id));
+});
+
+test('answered practice reopens with the chosen FAQ, score and highlighted clues intact',async t=>{
+  const islands=trackedPracticeIslands();const {$,goto,animations}=setup(t,{islands});await goto('practice');
+  $('[data-answer="1"]').click();const faq=islands.faqs.at(-1);faq.props.onValueChange(quiz[0].reviewQA.id);
+  assert.equal(faq.props.value,quiz[0].reviewQA.id);
+  const enters=animations.filter(a=>a.target?.id==='feedback').length;
+  await goto('home');assert.equal(faq.destroyed,true);await goto('practice');
+  assert.equal(islands.counters.at(-1).props.value,1);assert.equal(islands.faqs.at(-1).props.value,quiz[0].reviewQA.id);
+  assert.ok($('.material-segment.is-clue'));assert.equal($('[data-answer="1"]').disabled,true);assert.equal($('#feedback').style.opacity,'1');
+  assert.equal(animations.filter(a=>a.target?.id==='feedback').length,enters,'restored answers never replay the feedback entrance');
+});
+
+test('official queue exit removes one ticket, blocks next until settled and ignores repeated answer activation',async t=>{
+  const exits=[];const {$,goto}=setup(t,{createLayout(){return {revert(){},update(change,params){change();const exit={finish:params.onComplete,complete(){params.onComplete();}};exits.push(exit);return exit;}};}});await goto('practice');
+  const frame=$('.practice-frame');$('[data-answer="1"]').click();$('[data-answer="1"]').click();
+  assert.equal(exits.length,1);assert.equal($('#nextQuestion').disabled,true);assert.ok($('[data-question="0"]'));
+  $('#nextQuestion').click();assert.match($('#questionTitle').textContent,/换号码/);
+  exits[0].finish();assert.equal($('[data-question="0"]'),null);assert.equal($('#nextQuestion').disabled,false);assert.equal($('#quizRemaining').textContent,'5 / 6');
+  $('#nextQuestion').click();assert.strictEqual($('.practice-frame'),frame);assert.match($('#questionTitle').textContent,/视频/);
+});
+
+test('pause and close settle an interrupted local question swap once, without leaving invisible text',async t=>{
+  const swaps=[];const {$,goto}=setup(t,{animate(target,params){
+    if(target?.id==='practiceStage'){target.style.opacity='.16';target.style.transform='translateY(-8px)';const animation={params,cancel(){animation.cancelled=true;}};swaps.push(animation);return animation;}
+    params.onComplete?.();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};
+  }});await goto('practice');
+  const frame=$('.practice-frame');$('[data-answer="1"]').click();$('#nextQuestion').click();$('#nextQuestion').click();assert.equal(swaps.length,1);
+  $('#motionButton').click();assert.equal(swaps[0].cancelled,true);assert.equal($('#practiceStage').style.opacity,'1');assert.equal($('#practiceStage').style.transform,'none');assert.match($('#questionTitle').textContent,/视频/);assert.strictEqual($('.practice-frame'),frame);
+  swaps[0].params.onComplete();assert.match($('#questionTitle').textContent,/视频/,'stale completion cannot advance twice');
+  $('#motionButton').click();$('[data-answer="2"]').click();$('#nextQuestion').click();assert.equal(swaps.length,2);
+  await goto('home');assert.equal(swaps[1].cancelled,true);await goto('practice');
+  assert.match($('#questionTitle').textContent,/验证码/);assert.equal($('#practiceStage').style.opacity,'');assert.equal($('#scoreCount').textContent,'已答对 2 题');assert.equal($('#feedback').textContent,'');
+  swaps[1].params.onComplete();assert.match($('#questionTitle').textContent,/验证码/);
+});
+
+test('advancing from scrolled feedback brings the next material into the workspace viewport',async t=>{
+  const {$,goto,w}=setup(t,{reduced:true});await goto('practice');
+  const body=$('#workspaceBody'),stage=$('#practiceStage');body.scrollTop=600;
+  body.getBoundingClientRect=()=>({top:100,bottom:800});stage.getBoundingClientRect=()=>({top:-350,bottom:1100});
+  $('[data-answer="1"]').click();$('#nextQuestion').click();
+  assert.ok(body.scrollTop<600&&body.scrollTop>=0,'only the workspace scroll position is brought back to the new material');
+  assert.equal(w.scrollY,0);assert.equal(w.document.activeElement.id,'questionTitle');assert.match($('#questionTitle').textContent,/视频/);
 });

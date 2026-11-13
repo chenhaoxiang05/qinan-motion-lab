@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {JSDOM} from 'jsdom';
 import {initApp} from '../src/app.js';
 
-test('real Anime.js fallback animations open, pause and switch types without replaying the window', async t=>{
+test('real Anime.js proxy transitions retain modality through return and preserve in-place type switches', async t=>{
   const dom=new JSDOM(readFileSync(new URL('../index.html',import.meta.url),'utf8'),{url:'https://qinan.test/',pretendToBeVisual:true});
   const w=dom.window;
   for(const key of ['window','document','location','HTMLElement','Element','SVGElement','Node','NodeList','HTMLCollection','getComputedStyle','requestAnimationFrame','cancelAnimationFrame'])globalThis[key]=typeof w[key]==='function'&&['getComputedStyle','requestAnimationFrame','cancelAnimationFrame'].includes(key)?w[key].bind(w):w[key];
@@ -17,13 +17,25 @@ test('real Anime.js fallback animations open, pause and switch types without rep
   const app=initApp({animate,utils,createSpring,visual:{pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){}}});
   t.after(()=>{app.destroy();engine.pause();w.close();});
   const $=s=>w.document.querySelector(s);
+  const until=async predicate=>{
+    const deadline=Date.now()+2500;
+    while(!predicate()&&Date.now()<deadline)await new Promise(r=>setTimeout(r,20));
+    assert.ok(predicate(),'transition reaches its stable state within its recovery budget');
+  };
   $('#motionButton').click();
   w.location.hash='check';await new Promise(r=>setTimeout(r,40));
   assert.equal($('#workspace').open,true);assert.equal($('#workspace').style.opacity,'1');
   $('#type-image').click();const panel=$('#uploadPanel');
   $('#type-video').click();assert.strictEqual($('#uploadPanel'),panel);assert.equal($('#workspace').style.opacity,'1');
   $('#settings').click();$('#toggleMotion').click();$('#settingsDone').click();
-  $('#closeWorkspace').click();await new Promise(r=>setTimeout(r,300));assert.equal($('#workspace').open,false);
-  w.location.hash='contacts';await new Promise(r=>setTimeout(r,650));
+  $('#closeWorkspace').click();await new Promise(r=>setTimeout(r,150));
+  assert.equal($('#workspace').open,true,'native modality stays active during shell return');
+  assert.equal($('#workspaceBackdrop').classList.contains('is-visible'),false,'blur/dimming disappear before shell return finishes');
+  assert.equal($('#workspaceBackdrop').style.visibility,'hidden');assert.equal($('#workspaceBackdrop').style.opacity,'0');
+  assert.equal($('#workspaceBackdrop').style.transition,'none');
+  assert.equal(w.document.body.classList.contains('feature-open'),true,'scroll remains locked during shell return');
+  await until(()=>!$('#workspace').open&&!$('#workspaceBackdrop').classList.contains('is-visible'));
+  w.location.hash='contacts';await until(()=>$('#contactForm')&&$('#workspaceBody').style.opacity==='1'&&!$('#workspace').classList.contains('is-transitioning'));
   assert.equal($('#workspace').open,true);assert.ok(Number($('#workspace').style.opacity)>.99);assert.ok($('#contactForm'));
+  assert.equal($('#workspaceBackdrop').classList.contains('is-visible'),true);assert.equal($('#workspaceBackdrop').style.getPropertyValue('backdrop-filter'),'');
 });

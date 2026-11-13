@@ -1,0 +1,36 @@
+{
+  "repository": "https://github.com/swamimalode07/rare-ui",
+  "commit": "21554cba3ac751c1f9c06869eadb9d44a0af7225",
+  "components": [
+    {
+      "component": "folder-component",
+      "upstream_path": "components/ui/folder-component.tsx",
+      "upstream_sha256": "b4a76341e592d5048a39de5d56ace38a526da21bb3065ffb9f5b1ff0aced30dd",
+      "registry": "https://www.rareui.com/r/folder-component.json"
+    },
+    {
+      "component": "ai-status",
+      "upstream_path": "components/ui/ai-status.tsx",
+      "upstream_sha256": "58d1a6ac343bc0d5e7d2edb4cd558c84a053599652653649e9543289ebeb8661",
+      "registry": "https://www.rareui.com/r/ai-status.json"
+    },
+    {
+      "component": "grid-reveal",
+      "upstream_path": "components/ui/grid-reveal.tsx",
+      "upstream_sha256": "97de3cb193e4c71e699d7b7d9c6ffb8365591affcba08f36ca8c66e92284244e",
+      "registry": "https://www.rareui.com/r/grid-reveal.json"
+    },
+    {
+      "component": "faq",
+      "upstream_path": "components/ui/faq.tsx",
+      "upstream_sha256": "d251534209ea56264067021aaa0b6c94658175cb00999298d76cfd795260d189",
+      "registry": "https://www.rareui.com/r/faq.json"
+    },
+    {
+      "component": "animated-counter",
+      "upstream_path": "components/ui/animated-counter.tsx",
+      "upstream_sha256": "7913a4e43d8ad16ebac5fe4ea2413890866f14b9a0e01f7feec2b912e399906c",
+      "registry": "https://www.rareui.com/r/animated-counter.json"
+    }
+  ]
+}

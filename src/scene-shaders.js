@@ -1,4 +1,4 @@
-/** Small, local GPU passes: a pointer-flow buffer and a silver liquid field. */
+/** One local GPU pass: precise tracks, a quiet grid and finite signal pulses. */
 export const screenVertex = `
   varying vec2 vUv;
   void main() {
@@ -7,124 +7,123 @@ export const screenVertex = `
   }
 `;
 
-export const flowFragment = `
-  uniform sampler2D uPrevious;
-  uniform vec2 uPointer;
-  uniform vec2 uVelocity;
-  uniform float uAspect;
-  uniform float uDelta;
-  uniform float uInject;
-  uniform float uReset;
-  varying vec2 vUv;
-  void main() {
-    if (uReset > .5) {
-      gl_FragColor = vec4(.5, .5, 0., 1.);
-      return;
-    }
-    vec2 previousVelocity = (texture2D(uPrevious, vUv).rg - .5) * 2.;
-    vec2 advected = clamp(vUv - previousVelocity * uDelta * .12, .001, .999);
-    vec4 previous = texture2D(uPrevious, advected);
-    vec2 velocity = (previous.rg - .5) * 2. * exp(-uDelta * 3.3);
-    float pressure = previous.b * exp(-uDelta * 2.2);
-    vec2 d = (vUv - uPointer) * vec2(uAspect, 1.);
-    float stamp = exp(-dot(d, d) / .0032) * uInject;
-    velocity += uVelocity * stamp * .65;
-    pressure = min(1., pressure + stamp * .18);
-    gl_FragColor = vec4(clamp(velocity, -.92, .92) * .5 + .5, pressure, 1.);
-  }
-`;
-
-export const liquidFragment = `
-  uniform sampler2D uFlow;
+export const fuiFragment = `
   uniform vec2 uResolution;
   uniform vec2 uFocus;
+  uniform vec2 uPointer;
+  uniform vec2 uFieldSize;
   uniform vec2 uPulseOrigin;
   uniform vec2 uCenter;
+  uniform float uPointerActivity;
   uniform float uTime;
   uniform float uPulseAge;
   uniform float uDim;
   varying vec2 vUv;
 
-  float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  float rule(float distance) {
+    return 1. - smoothstep(.35, 1.05, distance);
   }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3. - 2. * f);
-    return mix(mix(hash(i), hash(i + vec2(1., 0.)), f.x),
-               mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), f.x), f.y);
+  float segment(vec2 p, vec2 a, vec2 b) {
+    vec2 axis = b - a;
+    float t = clamp(dot(p - a, axis) / max(dot(axis, axis), 1.), 0., 1.);
+    return rule(length(p - a - t * axis));
   }
   void main() {
-    float aspect = uResolution.x / uResolution.y;
-    vec2 uv = vUv;
-    vec4 flow = texture2D(uFlow, uv);
-    vec2 p = (uv - .5) * vec2(aspect, 1.) * 2.8;
-    p += (flow.rg - .5) * 1.2 + uFocus * .13;
-    float t = uTime * .105;
-    vec2 warp = vec2(noise(p * .65 + vec2(t, -t * .7)),
-                     noise(p * .7 + vec2(-t * .6, t + 5.3)));
-    p += (warp - .5) * 1.2;
-    float wave = sin(p.x * 1.8 + sin(p.y * 1.45 + t) * 1.2 - t)
-               + cos(p.y * 2.1 - p.x * .42 + t * .8) * .67;
-    float contour = wave + p.y * .32;
-    float folds = abs(sin(contour * 2.1));
-    float ribbon = pow(1. - folds, 9.);
-    float silk = pow(1. - folds, 2.) * .16;
-    float highlight = pow(1. - folds, 46.);
-    vec2 pulseDelta = (uv - uPulseOrigin) * vec2(aspect, 1.);
-    float pulseRadius = max(0., uPulseAge) * .7;
-    float pulse = exp(-pow((length(pulseDelta) - pulseRadius) * 24., 2.))
-                * exp(-max(0., uPulseAge) * 2.) * step(0., uPulseAge);
-    float centralQuiet = 1. - .65 * exp(-dot((uv-uCenter)*vec2(aspect,1.),
-                                           (uv-uCenter)*vec2(aspect,1.)) * 19.);
-    float edge = 1. - smoothstep(.35, 1.15, length((uv-.5)*vec2(aspect*.65,1.)));
-    float light = (ribbon * .037 + silk * .025 + highlight * .028) * centralQuiet * edge;
-    vec3 color = vec3(.0026, .0032, .0045);
-    color += vec3(.87, .94, 1.) * light;
-    color += vec3(.66, .85, .48) * pulse * .04;
-    color += vec3(.8, .88, 1.) * flow.b * .018;
-    float grain = (hash(gl_FragCoord.xy + floor(uTime * 12.)) - .5) * .0011;
-    color = max(vec3(0.), color + grain) * mix(1., .4, uDim);
-    gl_FragColor = vec4(color, 1.);
+    vec2 pixel = vUv * uResolution;
+    vec2 q = (vUv - uCenter) * uResolution;
+    vec2 extent = max(uFieldSize, vec2(80.));
+    float inField = step(abs(q.x), extent.x) * step(abs(q.y), extent.y);
+    // A fixed 24px grid is confined to the sculpture's outer equipment field.
+    // Nothing bends, blooms, fills the headline area or moves behind running text.
+    vec2 cell = abs(mod(q + 12., 24.) - 12.);
+    float outerField = step(.48, max(abs(q.x)/extent.x, abs(q.y)/extent.y));
+    float grid = max(rule(cell.x), rule(cell.y)) * inField * outerField;
+    float ticks = rule(cell.x) * step(extent.y-4., abs(q.y)) * inField;
+    float rails = rule(abs(abs(q.y) - extent.y*.76)) * step(abs(q.x),extent.x);
+    float verticalRail = rule(abs(q.x-extent.x*.84)) * step(abs(q.y),extent.y*.76);
+    float horizontalGate = step(extent.x*.40, abs(q.x));
+    float guides = rails * horizontalGate + verticalRail;
+
+    // Two short packets move along straight rails; their paths never randomize.
+    float laneLength = extent.x*.54;
+    float packetX = extent.x*.44 + mod(uTime*17., max(1.,laneLength-18.));
+    float packetA = segment(q,vec2(packetX,extent.y*.76),vec2(packetX+14.,extent.y*.76));
+    float packetB = segment(q,vec2(-packetX,-extent.y*.76),vec2(-packetX-8.,-extent.y*.76));
+    float pointerLevel = clamp(uPointerActivity,0.,1.);
+    vec2 snapped = floor((uPointer*uResolution-uCenter*uResolution)/24.)*24.;
+    float cursor = max(segment(q,snapped-vec2(6.,0.),snapped+vec2(6.,0.)),
+                       segment(q,snapped-vec2(0.,6.),snapped+vec2(0.,6.)));
+    cursor *= inField * pointerLevel;
+    float focusTick = segment(q,vec2(extent.x*.84, uFocus.y*extent.y*.5-9.),
+                                vec2(extent.x*.84, uFocus.y*extent.y*.5+9.));
+    focusTick *= min(1.,length(uFocus));
+
+    // A form change sends one rectilinear scan outward, then it fully disappears.
+    vec2 delta = (vUv-uPulseOrigin)*uResolution;
+    float scanRadius = max(0.,uPulseAge)*210.;
+    float scan = rule(abs(max(abs(delta.x),abs(delta.y))-scanRadius));
+    scan *= step(0.,uPulseAge)*(1.-smoothstep(.2,1.25,uPulseAge))*inField;
+    vec3 color = vec3(.00125,.00145,.00135);
+    color += vec3(.70,.76,.73)*(grid*.006+ticks*.018+guides*.016);
+    color += vec3(.57,1.,.008)*(packetA*.30+packetB*.18+cursor*.13+focusTick*.20+scan*.06);
+    color *= mix(1.,.32,uDim);
+    gl_FragColor = vec4(color,1.);
     #include <colorspace_fragment>
   }
 `;
+
+/** The same three-stage clock drives opacity on CPU and migration on GPU. */
+export function morphVisualState(progress) {
+  const p = Math.max(0, Math.min(1, progress));
+  const smooth = value => { const t = Math.max(0, Math.min(1, value)); return t * t * (3 - 2 * t); };
+  const fade = smooth(p / (200 / 1500));
+  const travel = p < 1100 / 1500
+    ? .92 * smooth((p - 200 / 1500) / (900 / 1500))
+    : .92 + .08 * (1 - Math.pow(1 - (p - 1100 / 1500) / (400 / 1500), 3));
+  return { solidOpacity: 1 - fade, voxelOpacity: fade, travel };
+}
 
 /** Instancing morph math lives in the GPU, not thousands of per-frame JS matrices. */
 export function configureVoxelMaterial(material, uniforms) {
   material.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, uniforms);
-    const declarations = `
+    shader.vertexShader = `
       uniform float uProgress;
       attribute vec3 aStart;
       attribute vec3 aEnd;
       attribute vec3 aArc;
       attribute float aSeed;
+      float migration(float p) {
+        float travel = p < .7333333333
+          ? .92 * smoothstep(.1333333333, .7333333333, p)
+          : .92 + .08 * (1. - pow(1. - clamp((p - .7333333333) / .2666666667, 0., 1.), 3.));
+        return clamp(travel, 0., 1.);
+      }
       mat3 voxelRotation(float angle) {
         float c=cos(angle), s=sin(angle);
         return mat3(c,0.,-s, 0.,1.,0., s,0.,c);
       }
-    `;
-    shader.vertexShader = declarations + shader.vertexShader;
+    ` + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', `
-      float voxelT = clamp((uProgress - aSeed * .09) / .91, 0., 1.);
+      float voxelT = migration(uProgress);
       float disturbance = sin(voxelT * 3.14159265359);
-      mat3 voxelTurn = voxelRotation(disturbance * (aSeed * 9. + 1.));
+      mat3 voxelTurn = voxelRotation(disturbance * (.35 + aSeed * .7));
       vec3 objectNormal = voxelTurn * vec3(normal);
       #ifdef USE_TANGENT
         vec3 objectTangent = voxelTurn * vec3(tangent.xyz);
       #endif
     `);
+    // Three's color chunk precedes its normal chunk; never reference voxelT here.
     shader.vertexShader = shader.vertexShader.replace('#include <color_vertex>', `
       #include <color_vertex>
       #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
-        vColor.rgb = mix(vColor.rgb, vec3(.82, .88, .9), smoothstep(.1, .8, clamp((uProgress - aSeed * .09) / .91, 0., 1.)));
+        vColor.rgb = mix(vColor.rgb, vec3(.80, .87, .90), smoothstep(.1, .8, migration(uProgress)));
       #endif
     `);
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `
-      vec3 transformed = voxelTurn * vec3(position) * mix(1.25, .97, voxelT);
+      vec3 transformed = voxelTurn * vec3(position);
       transformed += mix(aStart, aEnd, voxelT) + aArc * disturbance;
     `);
   };
-  material.customProgramCacheKey = () => 'qinan-chrome-voxel-v4';
+  material.customProgramCacheKey = () => 'qinan-spaced-voxel-v5';
 }
