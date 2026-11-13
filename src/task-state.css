@@ -1,0 +1,58 @@
+.task-stream {
+  width: min(100%, 740px);
+  margin: 24px auto 0;
+  border: 1px solid #9ab87345;
+  background: #10190f;
+  text-align: left;
+}
+.task-stream[hidden] {
+  display: none;
+}
+.task-stream > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #9ab87330;
+}
+.task-stream > header strong {
+  color: #d5efac;
+  font-size: 13px;
+  font-weight: 600;
+}
+.task-stream > header span {
+  color: #aab69e;
+  font-size: 12px;
+}
+.stream-output {
+  max-height: 300px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 16px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.85;
+  color: #e6eadd;
+}
+@media (max-width: 699px) {
+  .task-stream > header {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stream-output {
+    max-height: 240px;
+    font-size: 13px;
+  }
+}
+@media print {
+  .task-stream {
+    break-inside: avoid;
+  }
+  .stream-output {
+    max-height: none;
+    overflow: visible;
+  }
+}

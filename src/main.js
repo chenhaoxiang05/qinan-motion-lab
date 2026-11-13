@@ -12,6 +12,7 @@ import './workspace-intro.css';
 import './usage-guide.css';
 import './interaction-polish.css';
 import './interaction-feedback.css';
+import './task-state.css';
 import './boot.css';
 import { createBootSequence } from './boot.js';
 import { animate, utils, createSpring, createLayout, createTimeline } from 'animejs';
@@ -47,7 +48,7 @@ const visual={
   setEntranceProgress(value){desired.entrance=value;ambient.setEntranceProgress(value);const placeholder=document.querySelector('.scene-placeholder');if(placeholder)placeholder.style.visibility=value<=0?'hidden':'';scene?.setEntranceProgress?.(value);},
   pointerPulse(x,y){scene?.pointerPulse?.(x,y);},
   async toggleForm(){await sceneReady;return disposed?'shield':scene.toggleForm();},
-  dispose(){disposed=true;window.removeEventListener('pointermove',trackAmbientPointer);document.documentElement.removeEventListener('pointerleave',resetAmbientPointer);ambient.destroy();fontReadiness.destroy();homeMotion?.destroy();boot?.destroy();scene?.dispose();}
+  dispose(){disposed=true;window.removeEventListener('pointermove',trackAmbientPointer);document.documentElement.removeEventListener('pointerleave',resetAmbientPointer);for(const event of ['pointerover','focusin','click'])document.removeEventListener(event,onIslandIntent,true);window.removeEventListener('hashchange',loadRouteIslands);ambient.destroy();fontReadiness.destroy();homeMotion?.destroy();boot?.destroy();scene?.dispose();}
 };
 const sceneReady=import('./scene.js').then(({createSanctuary})=>{
   if(disposed)return;
@@ -76,13 +77,25 @@ const sceneReady=import('./scene.js').then(({createSanctuary})=>{
   };
   return {fallback:true,label:'备用场景已就绪'};
 });
-// The optional React islands and the scene download in parallel. The plain DOM
-// application is available immediately, including when either chunk fails.
-const islandsReady=import('./rare-islands.jsx').then(module=>{
-  if(disposed)return;
-  Object.assign(islands,module);
-  app?.refreshIslands();
-}).catch(()=>({fallback:true,label:'基础交互已就绪'}));
+// Homepage interaction needs no React chunk. Start optional components only on
+// a feature/help intent (or a deep link), while the native controls remain usable.
+let islandsReady;
+function loadIslands(){
+  if(disposed)return Promise.resolve();
+  if(!islandsReady)islandsReady=import('./rare-islands.jsx').then(module=>{
+    if(disposed)return;
+    Object.assign(islands,module);
+    app?.refreshIslands();
+  }).catch(()=>({fallback:true,label:'基础交互已就绪'}));
+  return islandsReady;
+}
+function onIslandIntent(event){
+  if(event.target instanceof Element&&event.target.closest('[data-portal],#startCheck,#howItWorks,#helpButton,#uploadHelp'))void loadIslands();
+}
+function loadRouteIslands(){if(location.hash&&location.hash!=='#home')void loadIslands();}
+for(const event of ['pointerover','focusin','click'])document.addEventListener(event,onIslandIntent,true);
+window.addEventListener('hashchange',loadRouteIslands);
+loadRouteIslands();
 let motionPaused=false;
 try{motionPaused=localStorage.getItem('qinan-motion-paused')==='true';}catch{/* Optional storage. */}
 let markInterfaceReady;
@@ -91,7 +104,7 @@ const interfaceReady=Promise.all([interfaceMounted,fontReadiness.ready]).then(([
 boot=createBootSequence({
   stages:[
     {id:'interface',label:'界面',ready:interfaceReady},
-    {id:'interaction',label:'交互组件',ready:islandsReady},
+    {id:'interaction',label:'基础交互',ready:interfaceMounted},
     {id:'scene',label:'场景',ready:sceneReady},
   ],
   createTimeline,motionPaused,

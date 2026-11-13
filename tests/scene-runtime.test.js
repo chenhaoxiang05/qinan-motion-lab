@@ -47,13 +47,15 @@ test('the transparent seal renderer and its recovery paths leave the ambient lay
   }
   install('__sealTestRenderer', Renderer);
   install('__sealTestEnvironment', class { fromScene() { return { texture: new THREE.Texture(), dispose() {} }; } dispose() {} });
+  const motionAnimations = []; install('__sealTestAnimations', motionAnimations);
   t.after(async () => {
     controller?.dispose(); const { engine } = await import('animejs'); engine.pause(); callbacks.clear(); dom.window.close(); console.warn = originalWarn;
     for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
     await rm(temp, { recursive: true, force: true });
   });
   const sourcePath = join(repo, 'src/scene.js');
-  const source = (await readFile(sourcePath, 'utf8')).replace('new THREE.WebGLRenderer(', 'new globalThis.__sealTestRenderer(').replace('new THREE.PMREMGenerator(', 'new globalThis.__sealTestEnvironment(');
+  const source = (await readFile(sourcePath, 'utf8')).replace('new THREE.WebGLRenderer(', 'new globalThis.__sealTestRenderer(').replace('new THREE.PMREMGenerator(', 'new globalThis.__sealTestEnvironment(')
+    .replace("import { animate } from 'animejs';", "import { animate as engineAnimate } from 'animejs'; const animate=(target,params)=>{const animation=engineAnimate(target,params);globalThis.__sealTestAnimations.push(animation);return animation;};");
   const output = await build({ stdin: { contents: source, resolveDir: dirname(sourcePath), sourcefile: sourcePath }, bundle: true, write: false, platform: 'node', format: 'esm', external: ['three', 'animejs'], logLevel: 'silent' });
   const bundle = join(temp, 'scene.mjs'); await writeFile(bundle, output.outputFiles[0].text);
   const { createSanctuary } = await import(pathToFileURL(bundle).href);
@@ -104,6 +106,60 @@ test('the transparent seal renderer and its recovery paths leave the ambient lay
       if (action === 'focus') controller.focus(false);
       if (action === 'hidden') { Object.defineProperty(w.document, 'hidden', { configurable: true, value: false }); w.document.dispatchEvent(new w.Event('visibilitychange')); }
       frame(); frame(); assert.ok(renderer.renders > held);
+    }
+    release();
+  });
+
+  await t.test('idle seals stop drawing and pointer, drag and layout changes wake only bounded work', () => {
+    mode = 'normal'; controller = createSanctuary(host); frame();
+    const initial = renderer.renders;
+    for (let i = 0; i < 120; i++) frame();
+    assert.equal(renderer.renders, initial, 'an untouched seal does not redraw as the independent background animates');
+
+    controller.setPortalFocus({ x: .8, y: -.5 }); frame();
+    assert.ok(renderer.renders > initial, 'portal intent wakes a sleeping seal');
+    const intermediate = renderer.sculpture.rotation.y;
+    for (let i = 0; i < 120; i++) frame();
+    assert.notEqual(renderer.sculpture.rotation.y, intermediate, 'the tilt retains its damped interpolation');
+    const settled = renderer.renders;
+    for (let i = 0; i < 120; i++) frame();
+    assert.equal(renderer.renders, settled, 'tilt interpolation reaches a terminal frame and sleeps');
+    controller.setPortalFocus({ x: .8, y: -.5 }); frame();
+    assert.equal(renderer.renders, settled, 'repeated identical intent does not create another draw');
+
+    const event = (target, type, x, y) => { const pointer = new w.Event(type); Object.assign(pointer, { pointerId: 11, button: 0, clientX: x, clientY: y }); target.dispatchEvent(pointer); };
+    const beforeDrag = renderer.sculpture.rotation.y;
+    event(renderer.domElement, 'pointerdown', 620, 290); event(w, 'pointermove', 640, 300); frame();
+    assert.notEqual(renderer.sculpture.rotation.y, beforeDrag, 'drag wakes from the settled pose');
+    const dragHeld = renderer.renders;
+    for (let i = 0; i < 10; i++) frame();
+    assert.equal(renderer.renders, dragHeld, 'holding the pointer still does not burn frames');
+    event(w, 'pointerup', 640, 300);
+
+    w.dispatchEvent(new w.Event('scroll')); frame();
+    assert.ok(renderer.renders > dragHeld, 'placement changes still refresh the scene');
+    const placed = renderer.renders;
+    for (let i = 0; i < 10; i++) frame();
+    assert.equal(renderer.renders, placed, 'placement work does not restart an idle loop');
+    assertIndependent(); release();
+  });
+
+  await t.test('form motion wakes the GPU and its final readable pose stops the loop in either direction', async () => {
+    mode = 'normal'; controller = createSanctuary(host); frame();
+    for (const expected of ['slogan', 'shield']) {
+      const before = renderer.renders, pending = controller.toggleForm();
+      const animation = motionAnimations.at(-1); assert.ok(animation); animation.pause();
+      animation.seek(animation.duration / 2); frame();
+      assert.ok(renderer.renders > before, 'the actual Anime pose update wakes rendering');
+      animation.complete(); frame();
+      assert.equal(await pending, expected);
+      const held = renderer.renders;
+      for (let i = 0; i < 120; i++) frame();
+      assert.equal(renderer.renders, held, 'a completed form has no autonomous GPU loop');
+      const lines = renderer.sculpture.children.filter(child => child.isMesh && child.material?.transparent && child.material?.map);
+      assert.equal(lines.length, 2);
+      assert.ok(lines.every(line => line.visible === (expected === 'slogan')));
+      assertIndependent();
     }
     release();
   });

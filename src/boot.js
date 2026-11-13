@@ -1,4 +1,4 @@
-const SESSION_KEY = 'qinan-boot-v13-complete';
+const SESSION_KEY = 'qinan-boot-v14-complete';
 const FIRST_LOCK_MS = 1400;
 const RETURN_LOCK_MS = 150;
 const FIRST_REVEAL_MS = 600;
