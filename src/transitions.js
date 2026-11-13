@@ -95,7 +95,7 @@ export function createWorkspaceTransitions({
   function fade(nodes,from,to,duration,done){
     opacity(nodes,from);
     if(!nodes.length){done();return;}
-    start(nodes,{opacity:[from,to],duration,ease:'outQuad'},()=>opacity(nodes,to),done);
+    start(nodes,{opacity:[from,to],duration,ease:'out(3)'},()=>opacity(nodes,to),done);
   }
   function morph(from,to,duration,done){
     showProxyCopy();place(from);proxy.style.display='block';mask(true);
@@ -123,9 +123,9 @@ export function createWorkspaceTransitions({
       if(!dialog.open)dialog.showModal();
       const to=rect(surface);
       if(origin)origin.style.visibility='hidden';
-      morph(from||{...to,top:to.top+12},to,from?480:220,()=>{
+      morph(from||{...to,top:to.top+12},to,from?520:240,()=>{
         clearProxy();
-        fade(content(),0,1,160,finishOpen);
+        fade(content(),0,1,220,finishOpen);
       });
     };
     fade(portalContent(origin),1,0,90,expand);
@@ -150,7 +150,7 @@ export function createWorkspaceTransitions({
     fade(content(),1,0,90,()=>{
       const from=rect(surface),to=returned?.isConnected?rect(returned):{...from,top:from.top+12};
       opacity(portalContent(returned),0);
-      morph(from,to,returned?420:180,finishClose);
+      morph(from,to,returned?460:200,finishClose);
     });
   }
   function apply(request){

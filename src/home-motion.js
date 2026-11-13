@@ -73,6 +73,22 @@ export function createHomeMotion({root=globalThis.document,createTimeline,visual
       addFade(find('.intro-copy>p,.intro-coordinate,.core-controller,.stage-index,.home-bottom,.site-footer'),740,310);
       // Existing placement transforms on the caption/controller are untouched.
       for(const caption of find('.art-caption')){apply(caption,{opacity:'0'});addFade([caption],740,310);}
+      for(const word of find('.home-line-original .title-accent')){
+        const emphasis={draw:0,head:0,light:0};
+        apply(word,{'--emphasis-reveal':'0','--emphasis-head':'0','--emphasis-light':'0'});
+        const paintEmphasis=()=>{
+          if(revision!==localRevision)return;
+          word.style.setProperty('--emphasis-reveal',String(emphasis.draw));
+          word.style.setProperty('--emphasis-head',String(emphasis.head));
+          word.style.setProperty('--emphasis-light',String(emphasis.light));
+        };
+        timeline.add(emphasis,{draw:[0,1],duration:400*factor,ease:'out(3)',onUpdate:paintEmphasis},400*factor);
+        if(variant==='first'){
+          timeline.add(emphasis,{head:[0,1],duration:300*factor,ease:'inOut(2)',onUpdate:paintEmphasis},540*factor);
+          timeline.add(emphasis,{light:[0,.85],duration:100*factor,ease:'out(2)',onUpdate:paintEmphasis},540*factor);
+          timeline.add(emphasis,{light:[.85,0],duration:200*factor,ease:'inOut(2)',onUpdate:paintEmphasis},640*factor);
+        }
+      }
       if(variant==='first')for(const word of find('.home-line-original .title-accent')){
         const scan=doc.createElement('span');scan.className='home-word-scan';scan.textContent=word.textContent;
         scan.setAttribute('aria-hidden','true');scan.setAttribute('inert','');word.append(scan);decorations.push(scan);

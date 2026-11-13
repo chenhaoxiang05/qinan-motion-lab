@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" role="img" aria-labelledby="title description">
+  <title id="title">转账凭证教学示例</title>
+  <desc id="description">标注为示例的转账凭证，提醒读者回到自己的账户核对实际到账。</desc>
+  <rect width="720" height="440" fill="#10150f"/>
+  <path d="M24 67V24h78M618 24h78v43M24 373v43h78M618 416h78v-43" fill="none" stroke="#c2ff00" stroke-width="2"/>
+  <g font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif">
+    <text x="52" y="68" fill="#a3af95" font-size="18" letter-spacing="3">MATERIAL 03 / IMAGE</text>
+    <path d="M525 42h143v38H525z" fill="#c2ff00"/>
+    <text x="596" y="67" text-anchor="middle" fill="#11170c" font-size="20" font-weight="700">示例图</text>
+    <rect x="98" y="104" width="524" height="260" rx="3" fill="#ecefe2"/>
+    <path d="M122 128h29v29h-29z" fill="#192512"/>
+    <path d="m129 141 6 6 11-13" fill="none" stroke="#c2ff00" stroke-width="3"/>
+    <text x="167" y="150" fill="#23301b" font-size="25" font-weight="600">转账凭证</text>
+    <text x="360" y="229" text-anchor="middle" fill="#151b11" font-size="58" font-weight="700">¥ 3,800.00</text>
+    <path d="M130 253h460" stroke="#b8c3ab"/>
+    <text x="132" y="290" fill="#58634b" font-size="21">收款信息</text>
+    <text x="588" y="290" text-anchor="end" fill="#27331e" font-size="21">待独立核实</text>
+    <text x="132" y="331" fill="#58634b" font-size="21">材料来源</text>
+    <text x="588" y="331" text-anchor="end" fill="#27331e" font-size="21">对方发送的截图</text>
+    <text x="360" y="399" text-anchor="middle" fill="#c7d0bc" font-size="21">截图信息 ≠ 实际到账</text>
+  </g>
+</svg>

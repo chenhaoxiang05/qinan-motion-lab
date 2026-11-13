@@ -4,7 +4,7 @@ import {JSDOM} from 'jsdom';
 import {readFileSync} from 'node:fs';
 import {createBootSequence} from '../src/boot.js';
 
-const KEY = 'qinan-boot-v10-complete';
+const KEY = 'qinan-boot-v11-complete';
 const glyph = readFileSync(new URL('../src/boot-glyph.svg',import.meta.url),'utf8');
 const flush = async () => {await Promise.resolve();await Promise.resolve();};
 function deferred() {let resolve,reject;const promise = new Promise((yes,no) => {resolve = yes;reject = no;});return {promise,resolve,reject};}
@@ -243,15 +243,15 @@ test('missing markup and an expired download failsafe resolve both promises imme
   assert.deepEqual(await late.finished,{variant:'first',reason:'timeout'});assert.equal(root.hidden,true);
 });
 
-test('the module clears the inline download failsafe and v9 history cannot suppress the new poster',async t => {
+test('the module clears the inline download failsafe and v10 history cannot suppress the new poster',async t => {
   const {w,root,create} = setup(t);
   let inlineFired = false;w.__qinanBootFailSafe = setTimeout(() => {inlineFired = true;},4500);
-  w.sessionStorage.setItem('qinan-boot-v9-complete','true');
+  w.sessionStorage.setItem('qinan-boot-v10-complete','true');
   const boot = create();await flush();
   t.mock.timers.tick(450);assert.equal(root.hidden,false);assert.equal(root.dataset.variant,'first');
   t.mock.timers.tick(950);await boot.revealing;t.mock.timers.tick(600);await boot.finished;
   t.mock.timers.tick(3000);assert.equal(inlineFired,false);
-  assert.equal(w.sessionStorage.getItem('qinan-boot-v9-complete'),'true');
+  assert.equal(w.sessionStorage.getItem('qinan-boot-v10-complete'),'true');
 });
 
 test('published poster keeps intact Chinese dominant and uses no glyph variants or fetched imagery',() => {

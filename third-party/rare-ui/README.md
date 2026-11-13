@@ -15,4 +15,6 @@ Adaptations in `src/rare-ui/`:
 - FAQ retains its controlled/uncontrolled expansion, linked answer regions and arrow/Home/End keyboard navigation. QINAN supplies plain-text question and answer data, removes the decorative avatar, and styles its message bubbles as compact review panels. Paused answers start fully visible.
 - Animated Counter retains the upstream digit-wheel motion for score updates. When motion is paused it renders the final number immediately. The adapter hides decorative digits from assistive technology and supplies one separate, current score string.
 
+The v11 module-entry sequence also mounts Inline AI Status, and the interactive usage guide reuses Animated Counter and FAQ. These instances follow the same pause and unmount lifecycle as the original upload and practice islands. Tutorial content is local, visibly labeled example material and never submitted as a real detection task.
+
 These source files ship as part of this application, not as a standalone component distribution. The public application footer and root README credit Rare UI.

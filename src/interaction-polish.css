@@ -1,0 +1,27 @@
+/* Small responses follow the user's action; live text never gains a filter/mask. */
+:root{--interaction-ease:cubic-bezier(.2,.75,.25,1)}
+.portal-node{transition:background-color .3s var(--interaction-ease),border-color .3s var(--interaction-ease),box-shadow .3s var(--interaction-ease)}
+.portal-node .portal-content{transition:translate .28s var(--interaction-ease)}
+.portal-node:hover .portal-content,.portal-node:focus-visible .portal-content{translate:0 -2px}
+.home-prepared .portal-node .portal-content,.home-arriving .portal-node .portal-content,.feature-open .portal-node .portal-content{translate:0 0}
+.primary,.secondary,.text-button,.family-link,.header-start,.core-control,.icon-button,.demo-link,.history-row button{transition:translate .22s var(--interaction-ease),background-color .24s var(--interaction-ease),border-color .24s var(--interaction-ease),box-shadow .24s var(--interaction-ease),color .22s var(--interaction-ease)}
+:is(.primary,.secondary,.family-link,.header-start,.core-control,.icon-button,.history-row button):hover:not(:disabled){translate:0 -1px}
+:is(.primary,.secondary,.family-link,.header-start,.core-control,.icon-button,.history-row button):active:not(:disabled){translate:0 1px;transition-duration:.1s}
+.answer{transition:border-color .24s var(--interaction-ease),background-color .24s var(--interaction-ease),box-shadow .24s var(--interaction-ease)}
+.answer:hover:not(:disabled){box-shadow:inset 3px 0 0 #c2ff0080}
+.form-field input{transition:border-color .24s var(--interaction-ease),background-color .24s var(--interaction-ease),box-shadow .24s var(--interaction-ease)}
+.form-field input:focus{border-color:#b9db70;box-shadow:0 0 0 3px #c2ff000c}
+.history-row{transition:background-color .26s var(--interaction-ease),border-color .26s var(--interaction-ease)}
+.history-row:hover{background:#c2ff0005}
+.history-row .history-icon{transition:translate .28s var(--interaction-ease),border-color .28s var(--interaction-ease)}
+.history-row:hover .history-icon{translate:2px 0;border-color:#a5c56d}
+.demo-link .play-orb{transition:background-color .24s var(--interaction-ease),border-color .24s var(--interaction-ease)}
+.demo-link:hover .play-orb{background:#c2ff0015;border-color:#c2ff00}
+.demo-link>span:last-child{transition:translate .28s var(--interaction-ease)}
+.demo-link:hover>span:last-child{translate:3px -3px}
+@media(prefers-reduced-motion:reduce){
+  .portal-node,.portal-node .portal-content,.primary,.secondary,.text-button,.family-link,.header-start,.core-control,.icon-button,.demo-link,.history-row,.history-row button,.history-icon,.answer,.form-field input,.play-orb,.demo-link>span:last-child{transition:none!important;translate:none!important}
+  .node-arrow,.core-control>b,.header-start>span{transform:none!important}
+}
+.motion-off :is(.portal-node,.portal-content,.primary,.secondary,.text-button,.family-link,.header-start,.core-control,.icon-button,.demo-link,.history-row,.history-row button,.history-icon,.answer,.form-field input,.play-orb,.demo-link>span:last-child){transition:none!important;translate:none!important}
+.motion-off :is(.node-arrow,.core-control>b,.header-start>span){transition:none!important;transform:none!important}

@@ -53,11 +53,11 @@ test('closing clears visual dimming immediately while native dialog and scroll l
   const f=fixture(t),{controller,dialog,surface,backdrop,portals,calls,stages}=f;
   f.navigate('check');assert.equal(controller.state,'opening');assert.equal(dialog.open,false);
   assert.equal(stages.at(-1).params.duration,90);f.complete();
-  assert.equal(dialog.open,true);assert.equal(stages.at(-1).kind,'morph');assert.equal(stages.at(-1).params.duration,480);
+  assert.equal(dialog.open,true);assert.equal(stages.at(-1).kind,'morph');assert.equal(stages.at(-1).params.duration,520);
   const proxy=dialog.querySelector('.workspace-proxy');assert.equal(proxy.children.length,1);assert.match(proxy.textContent,/01 核验.*检查材料.*声音/);assert.equal(proxy.getAttribute('aria-hidden'),'true');
   assert.deepEqual(stages.at(-1).params.width,[240,900]);assert.equal(proxy.style.width,'240px');
   assert.ok(dialog.classList.contains('is-transitioning'));assert.ok([...surface.children].every(node=>node.style.opacity==='0'));
-  f.complete();assert.equal(proxy.style.display,'none');assert.equal(stages.at(-1).params.duration,160);
+  f.complete();assert.equal(proxy.style.display,'none');assert.equal(stages.at(-1).params.duration,220);
   f.complete();assertSettled(f,true);assert.equal(calls.filter(c=>c==='opened').length,1);
   f.navigate('home');assert.equal(stages.at(-1).params.duration,90);
   assert.equal(backdrop.classList.contains('is-visible'),false,'dimming ends at close start');
@@ -67,7 +67,7 @@ test('closing clears visual dimming immediately while native dialog and scroll l
   assert.equal(dialog.open,true);assert.equal(f.document.body.classList.contains('feature-open'),true);
   f.complete();
   assert.equal(dialog.open,true,'native top layer must not close at morph start');
-  assert.equal(stages.at(-1).params.duration,420);assert.deepEqual(stages.at(-1).params.width,[900,240]);
+  assert.equal(stages.at(-1).params.duration,460);assert.deepEqual(stages.at(-1).params.width,[900,240]);
   assert.equal(proxy.style.display,'block');assert.match(proxy.textContent,/01 核验.*检查材料.*声音/,'identity stays readable during shrink');
   assert.equal(backdrop.classList.contains('is-visible'),false);assert.equal(calls.includes('home'),false);
   assert.equal(f.document.body.classList.contains('feature-open'),true);
@@ -167,7 +167,7 @@ test('hiding the tab or resizing during a morph restores its terminal layout',t=
 test('a missing animation callback is bounded by the recovery timer',t=>{
   const f=fixture(t);t.mock.timers.enable({apis:['setTimeout']});
   f.navigate('check');t.mock.timers.tick(400);assertSettled(f,true);
-  f.navigate('home');f.complete();t.mock.timers.tick(750);assertSettled(f,false);
+  f.navigate('home');f.complete();t.mock.timers.tick(800);assertSettled(f,false);
 });
 
 test('destroy clears masks, restores origin, removes the proxy and rejects late completion',t=>{
