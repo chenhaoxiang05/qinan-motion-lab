@@ -339,3 +339,56 @@ test('advancing from scrolled feedback brings the next material into the workspa
   assert.ok(body.scrollTop<600&&body.scrollTop>=0,'only the workspace scroll position is brought back to the new material');
   assert.equal(w.scrollY,0);assert.equal(w.document.activeElement.id,'questionTitle');assert.match($('#questionTitle').textContent,/视频/);
 });
+
+
+test('practice navigation stays outside scrolling feedback and waits for the ticket exit before continuing',async t=>{
+  const exits=[];const {$,goto,w}=setup(t,{createLayout(){return {revert(){},update(change,params){change();const exit={finish:params.onComplete,complete(){params.onComplete();}};exits.push(exit);return exit;}};}});await goto('practice');
+  const dock=$('#practiceDock'),button=$('#nextQuestion'),body=$('#workspaceBody'),surface=$('.workspace-surface');
+  assert.strictEqual(dock.parentElement,surface);assert.strictEqual(dock.nextElementSibling,$('.workspace-footer'));assert.equal(body.contains(dock),false);
+  assert.equal(surface.classList.contains('has-practice'),true);assert.equal(button.disabled,true);assert.match($('#practiceDockHint').textContent,/选择一个答案/);
+  button.click();assert.match($('#questionTitle').textContent,/换号码/);
+  $('[data-answer="1"]').click();assert.equal(button.disabled,true);assert.equal($('#feedback #nextQuestion'),null);assert.equal($('#feedback').tabIndex,0);
+  body.scrollTop=900;$('#feedback').scrollTop=300;exits[0].finish();
+  assert.strictEqual($('#nextQuestion'),button);assert.equal(button.disabled,false);assert.strictEqual(button.closest('nav'),dock);
+  button.click();assert.strictEqual($('#practiceDock'),dock);assert.strictEqual($('#nextQuestion'),button);assert.equal(button.disabled,true);
+  assert.equal($('#practiceDockStep').textContent,'情景 02 / 06');assert.match($('#practiceDockHint').textContent,/选择一个答案/);
+  assert.equal(w.document.querySelectorAll('#nextQuestion').length,1);assert.equal($('#feedback').textContent,'');
+});
+
+test('practice dock remains through completion and restart, and does not leak into other modules',async t=>{
+  const {$,goto,w}=setup(t,{reduced:true});await goto('practice');const dock=$('#practiceDock'),button=$('#nextQuestion');
+  for(const [index,q] of quiz.entries()){
+    $(`[data-answer="${q.correct}"]`).click();
+    if(index===quiz.length-1)assert.match(button.textContent,/查看本轮结果/);
+    button.click();assert.strictEqual($('#practiceDock'),dock);
+  }
+  assert.strictEqual($('#restartQuiz'),button);assert.equal($('#nextQuestion'),null);assert.equal($('#workspaceBody #restartQuiz'),null);assert.match($('#practiceDockHint').textContent,/6 \/ 6/);
+  button.click();assert.strictEqual($('#practiceDock'),dock);assert.strictEqual($('#nextQuestion'),button);assert.equal(button.disabled,true);assert.equal(w.document.querySelectorAll('.quiz-tile').length,6);
+  $('[data-answer="1"]').click();await goto('contacts');assert.equal($('#practiceDock'),null);assert.equal($('.workspace-surface').classList.contains('has-practice'),false);
+  await goto('practice');assert.equal($('#nextQuestion').disabled,false);assert.equal($('#scoreCount').textContent,'已答对 1 题');assert.equal(w.document.querySelectorAll('#practiceDock').length,1);
+  await goto('home');assert.equal($('#practiceDock'),null);assert.equal($('.workspace-surface').classList.contains('has-practice'),false);
+});
+
+
+test('the familiar-voice premise remains readable in the narrow-screen audio case',async t=>{
+  const {$,goto,w}=setup(t,{reduced:true});await goto('practice');
+  for(const q of quiz.slice(0,4)){$(`[data-answer="${q.correct}"]`).click();$('#nextQuestion').click();}
+  const style=w.document.createElement('style');style.textContent=readFileSync(new URL('../src/practice.css',import.meta.url),'utf8');w.document.head.append(style);
+  // JSDOM has no viewport media evaluation. Apply the real stylesheet's rules
+  // for each target viewport to verify content visibility, not browser geometry.
+  const rules=[...style.sheet.cssRules];
+  const atViewport=(list,width,height)=>list.flatMap(rule=>{
+    if(rule.type===w.CSSRule.STYLE_RULE)return [rule.cssText];
+    if(rule.type!==w.CSSRule.MEDIA_RULE)return [];
+    const applies=rule.conditionText.split(/\s+and\s+/).every(part=>{
+      const match=part.trim().match(/^\((max|min)-(width|height):\s*(\d+)px\)$/);if(!match)return false;
+      const actual=match[2]==='width'?width:height,limit=+match[3];return match[1]==='max'?actual<=limit:actual>=limit;
+    });
+    return applies?atViewport([...rule.cssRules],width,height):[];
+  });
+  for(const [width,height] of [[320,640],[390,844]]){
+    style.textContent=atViewport(rules,width,height).join('\n');
+    const premise=$('#practiceMaterial .sender-meta');assert.match(premise.textContent,/声音熟悉/);
+    for(let node=premise;node&&node!==w.document.body;node=node.parentElement)assert.notEqual(w.getComputedStyle(node).display,'none',`familiar voice remains visible at ${width}px`);
+  }
+});

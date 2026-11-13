@@ -1,18 +1,16 @@
-# 亲安 QINAN v7 · 聚合与判断
+# 亲安 QINAN v8 · 字形与节奏
 
 黑白与酸绿的个人安全界面。保留四个悬浮入口、可重组的立体「安」盾牌，以及材料核验、联系人、情景练习和历史记录。
 
-在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。使用原有访问权限，开发分支为 `v7-experience`。`main` 和旧版标签继续保留历史版本。
+在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。使用原有访问权限，开发分支为 `v8-flow`。`main` 和旧版标签继续保留历史版本。
 
-## v7 更新
+## v8 更新
 
-- 启动页将「亲安」拆成 12 个本地 SVG 部位。界面、交互组件、场景三个真实就绪事件分别推动一组归位，持续显示“正在加载亲安”；首次约 2.4 秒，刷新短版约 0.4 秒，支持跳过与 4 秒超时放行。
-- 关闭功能窗口时，模糊和暗色遮罩立即消失，空外壳继续回到入口。原生 dialog 与滚动锁直到回收结束才释放，防止点击穿透或正文闪动。
-- 点击内容面板外的空白返回主页；面板内部留白、拖拽、文字选择、文件选择和辅助弹窗不会误触退出。右上角返回和 Esc 继续可用。
-- 六道情景题改为“材料＋判断”：短信、视频来电记录、通话摘要和语音转写均明确标为虚构情景。作答后标出关键线索、你的选择及建议做法，再由用户进入下一题。
-- 六张带主题的待处理票据通过 Anime.js 官方布局退场方式逐张移除；题目框架和计分节点保持挂载，换题只切换局部内容。
-- 直接接入 [Rare UI](https://rareui.com) 的 AnimatedCounter 与 Faq，用于真实分数与错题复盘；保留 Folder 上传、Grid Reveal 图片预览与 Inline AI Status。
-- 保留黑白酸绿 FUI、三维「安」盾牌、34% 间隙的体素重组，以及上传、联系人、报告和历史记录功能。
+- 收回功能窗口时显示独立的板块编号、标题和说明，回到首页前先恢复入口文字，避免缩回的空白帧；模糊遮罩仍在关闭时立即消失。
+- 情景练习压缩顶部标题与待答队列，保留完整材料和三个选项。桌面左右并排，小屏上下排列；材料和答案字号不低于 14px。
+- “下一道情景”移到滚动区外的固定操作栏，答题退场结束后解锁；最后一题进入复盘，完成后可原位再练一轮。反馈与 Rare UI 复盘保留，下一步不再埋在长内容底部。
+- 启动页改为持续可辨认的「亲安 / QINAN」字标，以字形变奏、轮廓切换、短暂错位和负形切口表达真实加载进度。中文不再拆开飞散；保留三个真实就绪阶段、跳过、短版重访和超时放行。
+- 保留 Anime.js 待答票据布局退场、Rare UI 计分与复盘，以及上传、联系人、报告、历史记录和体素盾牌。
 
 ## 在其他设备继续开发
 
@@ -21,7 +19,7 @@
 ```sh
 git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
 cd qinan-motion-lab
-git switch v7-experience
+git switch v8-flow
 npm ci
 npm run dev
 ```
@@ -38,9 +36,9 @@ npm run build
 
 ## 验证与同步
 
-自动化覆盖上传与拖拽、启动就绪/超时、真实 React 组件接入、Anime.js 生命周期、弹窗文字恢复、答题队列、体素间隙和 WebGL 降级。详见 [v7 验收记录](docs/V7-ACCEPTANCE.md)。
+自动化覆盖上传与拖拽、启动就绪/超时、真实 React 组件接入、Anime.js 生命周期、弹窗文字恢复、答题队列、体素间隙和 WebGL 降级。详见 [v8 验收记录](docs/V8-ACCEPTANCE.md)。
 
-当前浏览器工具启动失败，未完成真实浏览器截图、GPU 观感、移动端触控和原生文件选择器、字形聚合和情景练习视觉验收。JSDOM 检查不能替代这些检查。按用户授权继续同步本次版本；不把未执行的视觉验收标为通过。
+当前浏览器工具启动失败，未完成真实浏览器截图、GPU 观感、移动端触控和原生文件选择器、字标变奏和情景练习布局的视觉验收。JSDOM 检查不能替代这些检查。按用户授权继续同步本次版本；不把未执行的视觉验收标为通过。
 
 每次完成更新都同步 GitHub 和同一个 GPT Site，保持站点原有访问权限；协作约定见 [AGENTS.md](AGENTS.md)。部署关联保存在 `.openai/hosting.json`。普通本地开发无需修改，部署自己的 Sites 项目时需替换项目 ID。
 
@@ -55,6 +53,7 @@ npm run build
 | 第五版文字与体素修复 | `v5-experimental` |
 | 第六版 FUI 与 Rare UI | `v6-fui` |
 | 第七版聚合启动与情景练习 | `v7-experience` |
+| 第八版字标与答题布局 | `v8-flow` |
 
 查看旧版：`git switch --detach v3.0.0`；从旧版继续：`git switch -c my-redesign v3.0.0`。切换版本后重新执行 `npm ci`。
 
@@ -65,5 +64,5 @@ npm run build
 - [Rare UI Folder](https://www.rareui.com/components/foldercomponent)、[Inline AI Status](https://www.rareui.com/components/aistatus)、[Grid Reveal](https://www.rareui.com/components/gridreveal)：直接改编的组件源码，Copyright © 2026 Swami Malode。
 - [Rare UI Faq](https://www.rareui.com/r/faq.json) 与 [AnimatedCounter](https://www.rareui.com/r/animated-counter.json)：直接改编的复盘与计分组件。
 - [Anime.js Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation)：答题队列退场。
-- Marathon 的界面设计语言仅作为图形与布局方向参考，没有使用其商标、游戏美术或专有字体。
+- [Nicolas Girard 的 Valorant 字标设计](https://nicolas.to/Valorant)与 Marathon 的界面设计语言仅作字形、图形和节奏参考，没有使用其商标、游戏美术或专有字体。QINAN 的 SVG 轮廓为本项目绘制；动效使用已安装的 Anime.js API，并非 Rare UI 的 Valorant 组件。
 - 本地字体和其他依赖遵循各自许可，字体许可随发布保留在 `public/licenses/`。

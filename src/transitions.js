@@ -1,13 +1,13 @@
-/** Text is never part of a geometry snapshot: only this empty shell morphs. */
+/** Live content never enters geometry snapshots; the morph owns its static identity copy. */
 export function createWorkspaceTransitions({
   dialog, surface, backdrop, portals, animate, motionEnabled,
   onBusy=()=>{}, onHome=()=>{}, onClosed=()=>{}, onOpened=()=>{},
 }) {
   const document=dialog.ownerDocument,view=document.defaultView;
   const proxy=document.createElement('div');
-  proxy.className='workspace-proxy';proxy.setAttribute('aria-hidden','true');
+  proxy.className='workspace-proxy';proxy.setAttribute('aria-hidden','true');proxy.setAttribute('role','presentation');
   proxy.style.display='none';dialog.append(proxy);
-  let state='closed',origin=null,active=null,queued=null,destroyed=false,forceInstant=false,sequence=0;
+  let state='closed',origin=null,identity=null,active=null,queued=null,destroyed=false,forceInstant=false,sequence=0;
   const content=()=>[...surface.children];
   const portalContent=node=>node?[node.querySelector('.portal-content')||node]:[];
   const opacity=(nodes,value)=>nodes.forEach(node=>node.style.opacity=String(value));
@@ -45,7 +45,29 @@ export function createWorkspaceTransitions({
     for(const key of ['left','top','width','height'])proxy.style[key]=`${box[key]}px`;
     proxy.style.borderRadius=box.borderRadius;
   };
-  function clearProxy(){proxy.style.display='none';proxy.style.opacity='1';proxy.style.transform='none';mask(false);}
+  const plainText=(node,limit)=>node?.textContent?.replace(/\s+/g,' ').trim().slice(0,limit)||'';
+  function readIdentity(node){
+    const source=node?.querySelector('.portal-content')||node;
+    return {
+      label:plainText(node?.querySelector('.node-top small'),32)||(node?`${String(portals.indexOf(node)+1).padStart(2,'0')} / QINAN`:'QINAN'),
+      title:plainText(source?.querySelector('strong'),48)||plainText(source,48)||plainText(surface.querySelector('#workspaceTitle'),48)||'亲安',
+      description:plainText(node?.querySelector('.node-desc'),96)||(node?'':'先核实，再放心。'),
+    };
+  }
+  function showProxyCopy(){
+    const copy=document.createElement('div');copy.className='workspace-proxy-copy';
+    for(const [key,tag] of [['label','span'],['title','strong'],['description','p']]){
+      const value=identity?.[key];if(!value)continue;
+      const line=document.createElement(tag);line.className=`workspace-proxy-${key}`;line.textContent=value;copy.append(line);
+    }
+    // Only fresh text nodes are created: input values, duplicate IDs and animated
+    // visibility/opacity styles cannot leak from the live workspace or the portal.
+    proxy.replaceChildren(copy);
+  }
+  function clearProxy(){
+    proxy.style.display='none';proxy.style.opacity='1';proxy.style.transform='none';
+    proxy.replaceChildren();mask(false);
+  }
   function resetSurface(){
     surface.style.visibility='';surface.style.opacity='1';surface.style.transform='none';opacity(content(),1);
     dialog.style.opacity='1';dialog.style.transform='none';
@@ -76,7 +98,7 @@ export function createWorkspaceTransitions({
     start(nodes,{opacity:[from,to],duration,ease:'outQuad'},()=>opacity(nodes,to),done);
   }
   function morph(from,to,duration,done){
-    mask(true);place(from);proxy.style.display='block';
+    showProxyCopy();place(from);proxy.style.display='block';mask(true);
     const properties={};for(const key of ['left','top','width','height','borderRadius'])properties[key]=[from[key],to[key]];
     start(proxy,{...properties,duration,ease:'inOut(3)'},()=>place(to),done);
   }
@@ -92,6 +114,7 @@ export function createWorkspaceTransitions({
   function open(request){
     state='opening';origin=request.portal?.isConnected?request.portal:null;
     onBusy();scrollLocked(true);showBackdrop();request.render();
+    identity=readIdentity(origin);
     resetSurface();opacity(content(),0);
     const from=origin?rect(origin):null;
     const expand=()=>{
@@ -112,16 +135,17 @@ export function createWorkspaceTransitions({
     if(state==='closed'){drain();return;}
     state='closing';hideBackdropImmediately();onBusy();
     const returned=origin;
+    if(!returned)identity=readIdentity(null);
     const finishClose=()=>{
+      // Restore destination text before withdrawing the copy. No blank card frame
+      // is introduced by starting another opacity:0 entrance after the handoff.
+      if(returned){returned.style.visibility='';opacity(portalContent(returned),1);}
       clearProxy();
       // Native modality ends only after the visible proxy has reached its destination.
       if(dialog.open)dialog.close();
-      resetSurface();if(returned)returned.style.visibility='';
-      fade(portalContent(returned),0,1,120,()=>{
-        resetSurface();releaseBackdrop();state='closed';onClosed();origin=null;
-        if(returned?.isConnected)returned.focus({preventScroll:true});
-        if(!queued||queued.key==='home')onHome();drain();
-      });
+      resetSurface();releaseBackdrop();state='closed';onClosed();origin=null;identity=null;
+      if(returned?.isConnected)returned.focus({preventScroll:true});
+      if(!queued||queued.key==='home')onHome();drain();
     };
     fade(content(),1,0,90,()=>{
       const from=rect(surface),to=returned?.isConnected?rect(returned):{...from,top:from.top+12};
@@ -164,7 +188,7 @@ export function createWorkspaceTransitions({
       try{active?.cancel();}catch{/* Always restore the DOM. */}active=null;
       clearProxy();resetSurface();
       if(origin){origin.style.visibility='';opacity(portalContent(origin),1);}
-      releaseBackdrop();if(dialog.open)dialog.close();state='closed';proxy.remove();
+      releaseBackdrop();if(dialog.open)dialog.close();state='closed';identity=null;proxy.remove();
       document.removeEventListener('visibilitychange',visibility);view.removeEventListener('resize',resize);
     },
   };
