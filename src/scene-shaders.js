@@ -1,4 +1,4 @@
-/** One local background pass: quiet panels and a continuously working signal field. */
+/** One local background pass: architectural panels and a visibly moving signal field. */
 export const screenVertex = `
   varying vec2 vUv;
   void main() {
@@ -40,6 +40,11 @@ export const fuiFragment = `
     float t = clamp(dot(p-a,axis)/max(dot(axis,axis),.001),0.,1.);
     return rule(length(p-a-t*axis));
   }
+  float wideSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 axis = b-a;
+    float t = clamp(dot(p-a,axis)/max(dot(axis,axis),.001),0.,1.);
+    return 1.-smoothstep(.9,1.8,length(p-a-t*axis));
+  }
   float rectangle(vec2 p, vec2 halfSize) {
     return step(abs(p.x),halfSize.x)*step(abs(p.y),halfSize.y);
   }
@@ -79,15 +84,15 @@ export const fuiFragment = `
     float distance = age*total;
     vec2 head = distance<first ? mix(start,elbow,distance/max(1.,first))
                               : mix(elbow,end,(distance-first)/max(1.,second));
-    float tailDistance = max(0.,distance-24.);
+    float tailDistance = max(0.,distance-80.);
     vec2 tail = tailDistance<first ? mix(start,elbow,tailDistance/max(1.,first))
                                   : mix(elbow,end,(tailDistance-first)/max(1.,second));
     // Draw separate segments across the elbow, never a diagonal shortcut.
     float packet = 0.;
-    if (tailDistance<first && distance>first) packet = max(segment(p,tail,elbow),segment(p,elbow,head));
-    else packet = segment(p,tail,head);
+    if (tailDistance<first && distance>first) packet = max(wideSegment(p,tail,elbow),wideSegment(p,elbow,head));
+    else packet = wideSegment(p,tail,head);
     packet *= active*step(0.,localTime)*(1.-step(travelTime,localTime))*step(.99,entrance);
-    return vec2(line*(.018+active*interacting*.065),packet*mix(.24,.62,interacting))*valid;
+    return vec2(line*(.032+active*interacting*.09),packet*mix(.48,.76,interacting))*valid;
   }
 
   void main() {
@@ -122,11 +127,11 @@ export const fuiFragment = `
     color = mix(color,vec3(.00478,.00605,.00439),lowerPanel);
 
     // A single cropped 24px lattice and its seams establish a print-like field.
-    float gridOffset = mod(uTime/18.*24.,24.);
+    float gridOffset = mod(uTime/6.*24.,24.);
     vec2 cell = abs(mod(far+vec2(12.,12.-gridOffset),24.)-12.);
     float lattice = max(rule(cell.x),rule(cell.y));
-    float gridArea = mainPanel*step(extent.x*.43,far.x)*step(far.y,extent.y*.86);
-    float grid = lattice*gridArea*.014;
+    float gridArea = mainPanel*step(extent.x*.12,far.x)*step(far.y,extent.y*.86);
+    float grid = lattice*gridArea*.026;
     float mainSeam = rule(abs(far.x+far.y*.63-mainSize.x*1.16)/1.18)*mainPanel;
     float lowerSeam = segment(far,vec2(-extent.x*.25,-extent.y*1.1),vec2(extent.x*1.6,-extent.y*1.1))*desktop;
 
@@ -168,16 +173,21 @@ export const fuiFragment = `
     }
     color += vec3(.539,1.,0.)*(routes.x+routes.y)*clear;
 
-    // A bone-coloured calibration band briefly activates the moving lattice.
-    // It stays inside that cropped area and never becomes a full-screen wipe.
-    float scan = 0.;
-    if (desktop>.5) {
-      float cycle = mod(uTime,6.);
-      float scanActive = (1.-step(1.4,cycle))*step(.99,entrance);
-      float scanY = mix(extent.y*.86+18.,-mainSize.y-18.,clamp(cycle/1.4,0.,1.));
-      float band = (1.-smoothstep(7.,9.,abs(far.y-scanY)))*gridArea;
-      scan = band*lattice*scanActive;
-    }
+    // A broad diagonal register passes across the equipment, large enough to
+    // read as motion at rest. Hard clipped edges retain the printed FUI feel.
+    // Its clock is held by the scene while paused, hidden or inside a feature.
+    float sweepCycle = mod(uTime,5.2);
+    float sweepProgress = clamp(sweepCycle/2.8,0.,1.);
+    float sweepRange = mainSize.x+mainSize.y*.58+90.;
+    float sweepX = mix(-sweepRange,sweepRange,sweepProgress);
+    float diagonal = (far.x+far.y*.58-sweepX)/1.156;
+    float sweepActive = (1.-step(2.8,sweepCycle))*step(.99,entrance);
+    float sweep = (1.-smoothstep(32.,36.,abs(diagonal)))*mainPanel*sweepActive;
+    float sweepEdge = rule(abs(diagonal-35.))*mainPanel*sweepActive;
+    color += vec3(.20,.38,.08)*sweep*.15*clear;
+    color += vec3(.62,.78,.40)*sweepEdge*.10*clear;
+    // The moving grid lights up inside the same registration band.
+    float scan = sweep*lattice*gridArea;
     float pointerLevel = clamp(uPointerActivity,0.,1.)*desktop;
     vec2 snapped = floor((uPointer*uResolution-layerCenter)/24.)*24.;
     float cursor = max(segment(q,snapped-vec2(5.,0.),snapped+vec2(5.,0.)),
@@ -187,14 +197,14 @@ export const fuiFragment = `
     float pulseRadius = max(0.,uPulseAge)*210.;
     float pulse = rule(abs(max(abs(pulseDelta.x),abs(pulseDelta.y))-pulseRadius));
     pulse *= step(0.,uPulseAge)*(1.-smoothstep(.15,1.10,uPulseAge))*rectangle(q,frame);
-    color += vec3(.70,.76,.66)*(scan*.075+cursor*.07+pulse*.024)*clear;
+    color += vec3(.70,.76,.66)*(scan*.10+cursor*.07+pulse*.024)*clear;
 
-    // Cobalt is a small registration tab, not a luminous atmosphere.
+    // One substantial cobalt tab travels along the upper equipment rail.
     float cobaltCycle = mod(uTime,6.4);
     float cobaltProgress = cobaltCycle<2.6 ? smoothstep(0.,2.6,cobaltCycle)
                                          : 1.-smoothstep(3.8,6.4,cobaltCycle);
-    float cobalt = rectangle(q-vec2(-frame.x+9.+64.*cobaltProgress,frame.y+12.),vec2(9.,2.5));
-    color = mix(color,vec3(.004,.033,.62),cobalt*clear*drawn*.72);
+    float cobalt = rectangle(q-vec2(-frame.x+20.+120.*cobaltProgress,frame.y+12.),vec2(20.,4.));
+    color = mix(color,vec3(.010,.065,.90),cobalt*clear*drawn*.90);
     float dust = (hash(floor(pixel))-0.5)*.00020;
     color = max(vec3(0.),color+vec3(dust));
     color *= mix(1.,.32,clamp(uDim,0.,1.));

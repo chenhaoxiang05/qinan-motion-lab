@@ -25,6 +25,8 @@ function assertSettled(doc,progress){
   for(const node of doc.querySelectorAll(managed)){
     assert.notEqual(node.style.opacity,'0',node.className+' is visible');assert.equal(node.style.clipPath,'');
   }
+  const accent=doc.querySelector('.title-accent');
+  for(const name of ['--emphasis-reveal','--emphasis-head','--emphasis-light'])assert.equal(accent.style.getPropertyValue(name),'','the persistent calibration line uses its visible CSS default');
   assert.equal(progress.at(-1),1);
 }
 function start(controller,doc,options){controller.prepare();doc.querySelector('#boot').hidden=true;controller.play(options);}
@@ -120,8 +122,12 @@ test('real Anime reveals title first and whole cards later, then fully releases 
   assert.equal(cards[0].style.opacity,'0','card surface remains absent until its beat');
   assert.ok(progress.some(value=>value>0&&value<1),'the scene follows the entrance');
   timeline.seek(500);assert.ok(Number(cards[0].style.opacity)>0&&Number(cards[0].style.opacity)<1,'complete card surface enters');assert.equal(cards[3].style.opacity,'0');
+  const accent=w.document.querySelector('.title-accent');
+  assert.ok(Number(accent.style.getPropertyValue('--emphasis-reveal'))>0&&Number(accent.style.getPropertyValue('--emphasis-reveal'))<1,'the underline is being drawn, not revealed as a thick full-width bar');
   const scan=w.document.querySelector('.home-word-scan');assert.ok(scan.style.clipPath.includes('polygon'));assert.doesNotMatch(scan.style.clipPath,/NaN/);
+  timeline.seek(650);assert.ok(Number(accent.style.getPropertyValue('--emphasis-light'))>0,'a short head travels along the persistent line');
   timeline.seek(900);assert.ok(Number(cards[3].style.opacity)>.9);assert.ok(line.textContent.includes('核实'));
+  assert.equal(Number(accent.style.getPropertyValue('--emphasis-reveal')),1);assert.equal(Number(accent.style.getPropertyValue('--emphasis-light')),0,'the light head finishes before the page rests');
   timeline.seek(1050);assertSettled(w.document,progress);
   const content=cards[0].getAttribute('style');await new Promise(resolve=>setTimeout(resolve,30));
   assert.equal(cards[0].getAttribute('style'),content,'completion never writes a new transform or opacity');

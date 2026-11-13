@@ -25,7 +25,7 @@ function setup(t,options={}){
   const animations=[];
   const motion={animate(target,params){animations.push({target,params});if(options.animate)return options.animate(target,params);if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
   const visual={pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){},...options.visual};
-  const app=initApp({...motion,createLayout:options.createLayout,visual,apiBase:options.apiBase,homeMotion:options.homeMotion,islands:options.islands,startReady:options.startReady,...(options.delay?{delay:options.delay}:{})});
+  const app=initApp({...motion,createLayout:options.createLayout,visual,apiBase:options.apiBase,homeMotion:options.homeMotion,islands:options.islands,startReady:options.startReady,entryDuration:options.entryDuration??0,...(options.delay?{delay:options.delay}:{})});
   const $=s=>w.document.querySelector(s);
   const goto=async hash=>{w.location.hash=hash;await tick();};
   const selectFile=async file=>{Object.defineProperty($('#fileInput'),'files',{value:[file],configurable:true});$('#fileInput').dispatchEvent(new w.Event('change'));await tick();};
@@ -121,6 +121,25 @@ test('a real job finishing after navigation does not hijack the current page',as
   await goto('contacts');const form=$('#contactForm');waits[0]();await tick();
   assert.strictEqual($('#contactForm'),form);assert.equal(w.location.hash,'#contacts');assert.equal(w.localStorage.getItem('qinan-demo-history'),null);
   await goto('history');$('[data-report]').click();await tick();assert.match($('#workspaceTitle').textContent,/核验报告/);assert.match($('.result-banner').textContent,/已完成声音核验/);
+});
+
+test('a background task failure preserves the returning check intro and unmounts its island before rendering',async t=>{
+  const waits=[],islands=trackedIslands();
+  const {$,goto,w,selectFile,animations}=setup(t,{entryDuration:700,islands,delay:()=>new Promise(resolve=>waits.push(resolve)),
+    animate(target,params){
+      if(!target?.nodeType&&!Array.isArray(target)&&params.duration===700)return {cancel(){}};
+      params.onComplete?.();return {cancel(){},pause(){},resume(){}};
+    },
+    fetch:async url=>({ok:true,json:async()=>url.endsWith('/analyze')?{job_id:'pending-return'}:{status:'failed'}}),
+  });
+  await goto('check');$('[data-entry-skip]').click();await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
+  await goto('contacts');$('[data-entry-skip]').click();await goto('check');
+  const intro=$('.workspace-entry'),island=islands.statuses.at(-1),clock=animations.findLast(item=>item.params.duration===700);
+  waits[0]();await tick();
+  assert.strictEqual($('.workspace-entry'),intro);assert.equal(island.destroyed,false);assert.equal($('#fileError'),null);
+  $('[data-entry-skip]').click();
+  assert.equal(island.destroyed,true);assert.equal(island.connectedOnDestroy,true);assert.match($('#fileError').textContent,/未能完成/);
+  assert.equal($('#analyzeButton').disabled,false);clock.params.onComplete();assert.equal($('.workspace-entry'),null);
 });
 
 test('a late history request failure cannot overwrite a newer view',async t=>{

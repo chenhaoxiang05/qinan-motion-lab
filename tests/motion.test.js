@@ -14,7 +14,7 @@ test('real Anime.js proxy transitions retain modality through return and preserv
   w.HTMLDialogElement.prototype.close=function(){this.open=false;};
   w.fetch=()=>Promise.reject(new TypeError('offline'));
   const {animate,utils,createSpring,engine}=await import('animejs');
-  const app=initApp({animate,utils,createSpring,visual:{pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){}}});
+  const app=initApp({entryDuration:0,animate,utils,createSpring,visual:{pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){}}});
   t.after(()=>{app.destroy();engine.pause();w.close();});
   const $=s=>w.document.querySelector(s);
   const until=async predicate=>{

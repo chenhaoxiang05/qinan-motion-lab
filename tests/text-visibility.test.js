@@ -15,7 +15,7 @@ test('an answered quiz reopens with visible feedback and never replays its local
   w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
   w.fetch=()=>Promise.reject(new TypeError('offline'));
   const feedbackEnters=[],layoutRoots=[];
-  const app=initApp({
+  const app=initApp({entryDuration:0,
     animate(target,params){
       if(target?.id==='feedback'){
         target.style.opacity='0';const pending={cancel(){pending.cancelled=true;}};feedbackEnters.push(pending);return pending;
@@ -47,7 +47,7 @@ test('auxiliary modals recover from interrupted entrances, pause, animation fail
   w.fetch=()=>Promise.reject(new TypeError('offline'));
   const entrances=[],errors=[];let failNext=false;
   w.addEventListener('error',event=>errors.push(event.error));
-  const app=initApp({
+  const app=initApp({entryDuration:0,
     animate(target,params){
       if(target?.id==='modal'){
         target.style.opacity='.12';target.style.transform='translateY(12px) scale(.96)';

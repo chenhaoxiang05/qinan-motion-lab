@@ -134,6 +134,26 @@ test('real Rare UI islands preserve upload, score and review interactions', asyn
       counter.destroy();
       faq.destroy();
     });
+    await t.test('the local usage guide reuses the actual counter and FAQ across all four examples', async () => {
+      const {guideMarkup,mountUsageGuide}=await import('../src/usage-guide.js');
+      const dialog=document.createElement('dialog'),guideHost=document.createElement('div');
+      guideHost.innerHTML=guideMarkup();dialog.append(guideHost);document.body.append(dialog);
+      const starts=[];
+      const guide=mountUsageGuide(guideHost,{islands:{mountCounter,mountFaq},motionEnabled:()=>false,onStart:kind=>starts.push(kind)});
+      try {
+        const counterRoot=guideHost.querySelector('.qi-counter');assert.ok(counterRoot);
+        for(const kind of ['audio','video','image','chat']) {
+          guideHost.querySelector(`[data-guide-kind="${kind}"]`).click();
+          guideHost.querySelector('[data-guide-step="2"]').click();
+          assert.strictEqual(guideHost.querySelector('.qi-counter'),counterRoot);
+          assert.equal(guideHost.querySelector('.qi-counter-readable').textContent,'3 / 3');
+          assert.ok(guideHost.querySelector('[data-guide-faq] [data-slot="faq-question"]'));
+          assert.ok(guideHost.querySelector('[data-guide-faq] [role="region"]').textContent.length>15);
+          guideHost.querySelector('[data-guide-next]').click();
+        }
+        assert.deepEqual(starts,['audio','video','image','chat']);
+      } finally {guide.destroy();assert.equal(guideHost.querySelector('.rare-island'),null);dialog.remove();}
+    });
   } finally {
     // React schedules a final passive cleanup task after synchronous unmount.
     await new Promise(resolve => setTimeout(resolve, 40));

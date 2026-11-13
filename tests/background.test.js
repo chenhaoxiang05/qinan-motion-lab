@@ -26,15 +26,15 @@ test('background shader compiles and links in the available native GLES compiler
   renderNative(t);
 });
 
-test('an untouched homepage has changing native shader frames while its title stays quiet',t=>{
+test('an untouched homepage shows broad movement within two seconds while its title stays quiet',t=>{
   const rendered=renderNative(t,{
     regions:{title:[12,260,190,145]},
-    frames:[.4,1.2,3.2,6].map(time=>({uTime:time,uAmbientTime:time})),
+    frames:[0,.8,1.6].map(time=>({uTime:time,uAmbientTime:time})),
   });
   if(!rendered)return;
-  assert.equal(new Set(rendered.frames.map(frame=>frame.hash)).size,4);
+  assert.equal(new Set(rendered.frames.map(frame=>frame.hash)).size,3);
   assert.equal(new Set(rendered.frames.map(frame=>frame.regions.title)).size,1);
-  assert.ok(rendered.changed_pixels.every(count=>count>100),'moving marks must change a visible area, not a lone pixel');
+  assert.ok(rendered.changed_pixels.every(count=>count>8000),'movement must occupy a visible field, not only tiny registration marks');
 });
 
 test('hover replaces the automatic packet and a frozen background clock yields identical frames',t=>{
@@ -69,4 +69,16 @@ test('mobile retains ambient motion without portal paths and preparation leaves 
   assert.equal(rendered.frames[3].hash,rendered.frames[4].hash,'decoration waits until the page entrance');
   assert.notEqual(rendered.frames[2].hash,rendered.frames[3].hash);
   assert.notDeepEqual(rendered.frames[3].samples.architecture,rendered.frames[3].samples.outside,'the large background panel remains visible before entrance');
+});
+
+test('a phone viewport has substantial early motion below its protected heading',t=>{
+  const rendered=renderNative(t,{
+    size:[390,844],
+    uniforms:{uMobile:1,uCenter:[.5,.30],uFieldSize:[188,163],uTitleRect:[18,430,354,290]},
+    regions:{title:[18,430,354,290]},
+    frames:[0,.8,1.6].map(time=>({uTime:time,uAmbientTime:time})),
+  });
+  if(!rendered)return;
+  assert.equal(new Set(rendered.frames.map(frame=>frame.regions.title)).size,1);
+  assert.ok(rendered.changed_pixels.every(count=>count>8000),'phone motion must be visible without hovering or scrolling');
 });

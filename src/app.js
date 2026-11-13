@@ -3,6 +3,8 @@ import { quiz } from './quiz.js';
 import { createWorkspaceTransitions } from './transitions.js';
 import { createWorkspaceDismiss } from './workspace-dismiss.js';
 import { createApiClient } from './api-client.js';
+import { createWorkspaceIntro } from './workspace-intro.js';
+import { guideMarkup, mountUsageGuide } from './usage-guide.js';
 
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fileTypes = {
@@ -29,7 +31,7 @@ export function moduleResult(module) {
   return {status:'below',threshold};
 }
 
-export function initApp({animate,utils,createSpring,createLayout,visual,islands={},homeMotion={},apiBase=import.meta.env?.VITE_API_BASE_URL||'/api',startReady=null,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
+export function initApp({animate,utils,createSpring,createLayout,visual,islands={},homeMotion={},apiBase=import.meta.env?.VITE_API_BASE_URL||'/api',startReady=null,entryDuration,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
   const body = $('#workspaceBody'), workspace = $('#workspace'), modal = $('#modal');
@@ -47,16 +49,17 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
   let practiceCounter=null, practiceFaq=null, practiceFaqValue=null, practiceFaqItems=[], questionSwap=null, practiceDock=null;
-  let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null, feedbackAnimation=null, windowReady=false, modalAnimation=null, modalRevision=0;
+  let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null, feedbackAnimation=null, windowReady=false, modalAnimation=null, modalRevision=0, guide=null;
   const pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
+  const entry=createWorkspaceIntro({host:body,animate,motionEnabled,getIslands:()=>islands,duration:entryDuration,onReady(){windowReady=transitions.state==='open';updatePracticeDock();}});
   const transitions=createWorkspaceTransitions({
     dialog:workspace,surface:$('.workspace-surface'),backdrop:$('#workspaceBackdrop'),portals:$$('.portal-node'),
     animate,createLayout,motionEnabled,
-    onBusy(){windowReady=false;finishQuestionSwap();updatePracticeDock();finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(transitions.state!=='closing');},
+    onBusy(){if(transitions.state==='closing')entry.cancel();windowReady=false;finishQuestionSwap();updatePracticeDock();finishFeedback();pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(transitions.state!=='closing');},
     onHome(){visual.focus(false);},
     onClosed(){windowReady=false;disposeView();body.innerHTML='';},
-    onOpened(){windowReady=true;},
+    onOpened(){entry.start();if(!entry.pending){windowReady=true;updatePracticeDock();}},
   });
   const exteriorDismiss=createWorkspaceDismiss({dialog:workspace,surface:$('.workspace-surface'),canDismiss:()=>transitions.state==='open'&&!modal.open&&!pickerPending,onDismiss:()=>go('home')});
   const e=escapeHTML;
@@ -82,7 +85,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   }
   function openModal(html){
     const alreadyOpen=modal.open;
-    settleModal();
+    settleModal();guide?.destroy();guide=null;
     utils.remove($('#modalBody').querySelectorAll('*'));
     $('#modalBody').innerHTML=html;
     if(!alreadyOpen){
@@ -97,7 +100,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       }
     }
   }
-  function closeModal(){settleModal();if(modal.open)modal.close();}
+  function closeModal(){settleModal();guide?.destroy();guide=null;if(modal.open)modal.close();}
   const cancelModal=event=>{event.preventDefault();closeModal();};
   const modalVisibility=()=>{if(document.hidden)settleModal();};
   $('#closeModal').onclick=closeModal;
@@ -136,7 +139,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     uploadIsland?.destroy();uploadIsland=null;uploadHost=null;
     statusIsland?.destroy();statusIsland=null;disposePracticeIslands();
   }
-  function disposeView(){disposeQuizLayout();disposeIslands();disposePracticeDock();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
+  function disposeView(){entry.cancel();disposeQuizLayout();disposeIslands();disposePracticeDock();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
     if(destroyed||startupPending)return;
     const raw=location.hash.slice(1)||'home';
@@ -146,17 +149,26 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     const revision=++routeRevision;
     // Abort old requests immediately, but retain the visible DOM until its close
     // transition finishes. Reverting a quiz layout before fade-out caused jumps.
-    viewController?.abort();page=target;
+    entry.cancel();viewController?.abort();page=target;
     transitions.navigate({key:target,portal:target==='report'?lastPortal:$(`[data-portal="${target}"]`),render(){
       if(revision!==routeRevision)return;
       disposeView();
       $('#workspaceTitle').textContent=pages[target][0];$('#sectionNumber').textContent=pages[target][1];
-      if(target==='report'){
-        const saved=legacyRecords.find(r=>r.id===reportId);
-        if(saved)currentReport=saved;
-        if(!currentReport||reportId&&currentReport.id!==reportId)renderReportFromId(reportId,revision);
-        else renderReport();
-      }else if(target==='check')renderCheck();else if(target==='contacts')renderContacts();else if(target==='practice')renderQuiz();else renderHistory(revision);
+      windowReady=false;
+      entry.prepare({key:target,render(){
+        if(destroyed||revision!==routeRevision)return;
+        body.scrollTop=0;
+        if(target==='report'){
+          const saved=legacyRecords.find(r=>r.id===reportId);
+          if(saved)currentReport=saved;
+          if(!currentReport||reportId&&currentReport.id!==reportId)return renderReportFromId(reportId,revision);
+          return renderReport();
+        }
+        if(target==='check')return renderCheck();
+        if(target==='contacts')return renderContacts();
+        if(target==='practice')return renderQuiz();
+        return renderHistory(revision);
+      }});
       body.scrollTop=0;
     }});
   }
@@ -351,7 +363,14 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       taskMessage('材料已提交，正在核验…');await pollJob(job.job_id);
     }catch(error){if(!destroyed)taskFailed(error.code==='timeout'&&!activeTask?.id?'提交超时，请先查看核验记录后再重试。':error.message);}
   }
-  function taskFailed(message){activeTask=null;fileError=message;if(page==='check')renderCheck();else toast(message);}
+  function taskFailed(message){
+    activeTask=null;fileError=message;
+    // A returning view owns its intro until it commits. Keep the failure in state
+    // so that render uses it, without replacing a live Rare UI entry island.
+    if(page==='check'){
+      if(!entry.pending&&transitions.state!=='closing')renderCheck();
+    }else toast(message);
+  }
   async function resumeJob(id){
     if(activeTask||id!==pendingJob())return;
     activeTask={id,state:'loading',message:'正在恢复核验进度…'};renderProcessing();
@@ -429,7 +448,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     $('#practiceDockHint').textContent=complete?`答对 ${correctCount} / ${quiz.length} 题 · 可回顾核实提醒`:answer===null?'选择一个答案，再继续':answer===q.correct?'✓ 这一步正确，继续练习':'先记住核实方法，再继续';
     button.id=complete?'restartQuiz':'nextQuestion';
     button.innerHTML=complete?`再练一轮 ${icon('refresh')}`:`${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}`;
-    button.disabled=page!=='practice'||!!questionSwap||(!complete&&(answer===null||!!quizExit));
+    button.disabled=!windowReady||page!=='practice'||!!questionSwap||(!complete&&(answer===null||!!quizExit));
     button.onclick=complete?restartQuiz:nextQuizQuestion;
   }
   function counterProps(){return {value:correctCount,paused:!motionEnabled(),label:'已答对',suffix:` / ${quiz.length}`};}
@@ -472,7 +491,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     const q=quiz[currentQuiz];stage.classList.remove('is-complete');
     stage.innerHTML=`<article id="practiceMaterial" class="practice-material surface" data-material-type="${e(q.materialType)}" aria-label="虚构情景材料"><div class="material-topline"><span class="material-type">${icon(q.icon)}${e(q.materialLabel)}</span><span class="fiction-badge">虚构情景</span></div><div class="material-sender"><span class="sender-avatar" aria-hidden="true">${icon(q.icon)}</span><div><strong class="sender-name">${e(q.sender)}</strong><span class="sender-meta">${e(q.senderMeta)}</span></div></div>${materialMedia(q)}<div class="material-body">${q.bodySegments.map(segment=>`<span class="material-segment${segment.clue?' case-clue':''}"${segment.clue?` data-clue="${e(segment.clue)}"`:''}>${e(segment.text)}</span>`).join('')}</div><div id="materialClues" class="material-clues" hidden></div><footer class="material-note case-file-footer"><span>CASE ${String(currentQuiz+1).padStart(2,'0')} / ${quiz.length}</span><span>${['video','audio','call'].includes(q.materialType)?'情景转述 · 非真实通话':'教学示例 · 不是真实消息'}</span></footer></article><section id="practiceAction" class="practice-action surface question-card" aria-labelledby="questionTitle"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span>独立核实</span></div><div class="progress-track" aria-hidden="true"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2 id="questionTitle" tabindex="-1">${e(q.title)}</h2><div id="answers" role="group" aria-label="选择你会采取的一步">${q.answers.map((choice,i)=>`<button class="answer" data-answer="${i}"><b aria-hidden="true">${String.fromCharCode(65+i)}</b><span class="answer-copy">${e(choice)}<span class="answer-status"></span></span></button>`).join('')}</div><div id="feedback"></div></section>`;
     $$('[data-answer]').forEach(button=>button.onclick=()=>{
-      if(answer!==null||questionSwap)return;
+      if(!windowReady||answer!==null||questionSwap)return;
       answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);
       updateAnswer(q);removeProgressTile();
     });
@@ -530,7 +549,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     swap.animation?.cancel?.();swap.commit();swap.finish(false);
   }
   function nextQuizQuestion(){
-    if(page!=='practice'||answer===null||quizExit||questionSwap)return;
+    if(!windowReady||page!=='practice'||answer===null||quizExit||questionSwap)return;
     finishFeedback();
     const stage=$('#practiceStage');if(!stage)return;
     const swap={animation:null,timer:null,phase:'out',committed:false,
@@ -560,7 +579,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
       items=items.filter(item=>!item.demo);
     }catch(error){
       if(controller.signal.aborted||revision!==routeRevision)return;
-      $('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>暂时无法读取记录。</h3><p>${e(error.message)}</p><button class="secondary" id="retryHistory">重新读取</button></div>`;$('#retryHistory').onclick=()=>renderHistory(revision);return;
+      $('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>暂时无法读取记录。</h3><p>${e(error.message)}</p><button class="secondary" id="retryHistory">重新读取</button></div>`;$('#retryHistory').onclick=async()=>{await renderHistory(revision);if(!destroyed&&revision===routeRevision)entry.revealContent();};return;
     }
     if(controller.signal.aborted||revision!==routeRevision)return;
     if(!items.length){$('#historyList').innerHTML=`<div class="empty-state">${icon('clock')}<h3>还没有核验记录。</h3><p>提交一份材料，完成后可以在这里查看。</p><button id="firstCheck" class="primary">开始一次核验 ${icon('arrow')}</button></div>`;$('#firstCheck').onclick=()=>go('check');return;}
@@ -601,7 +620,13 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
     return `<div class="result-modules">${cards||'<section class="surface"><h3>暂无模块结果</h3><p>请查看完整记录，或稍后重新核验。</p></section>'}</div>${chat?`<section class="surface report-evidence"><h2>${e(chat.assessment?.title||'聊天线索')}</h2><p>${e(chat.assessment?.summary||chat.summary||chat.note||'暂无更多线索。')}</p>${signals.map(signal=>`<div class="question-feedback"><b>${e(signal.title)}</b><br><span>${e(signal.quote)}</span></div>`).join('')}</section>`:''}${report.ocr?.text?`<details class="surface report-details"><summary>材料文字</summary><p class="quote-lines">${e(report.ocr.text)}</p></details>`:''}`;
   }
 
-  function helpModal(){openModal(`<span class="modal-eyebrow">HOW IT WORKS</span><h2 id="modalTitle">从一份材料开始。</h2><div class="steps-help"><div><b>01</b><span>选择声音、视频、照片或聊天截图，预览后提交。</span></div><div><b>02</b><span>查看核验结果和材料中的具体线索。</span></div><div><b>03</b><span>需要确认时，用熟悉的号码联系本人。</span></div></div><div class="modal-actions"><button id="helpDone" class="primary">知道了 ${icon('check')}</button></div>`);$('#helpDone').onclick=closeModal;}
+  function helpModal(){
+    openModal(guideMarkup());
+    guide=mountUsageGuide($('#modalBody'),{islands,animate,motionEnabled,onStart(kind){
+      if(fileTypes[kind]&&kind!==type){type=kind;clearFile();fileError='';}
+      closeModal();go('check');
+    },onClose:closeModal});
+  }
   function settingsModal(){
     openModal(`<span class="modal-eyebrow">PREFERENCES</span><h2 id="modalTitle">使用偏好</h2><div class="toggle-row"><span>动态效果</span><button id="toggleMotion" class="secondary">${paused?'恢复动效':'暂停动效'}</button></div><p>联系人保存在当前浏览器，可在“联系家人”中管理。</p><div class="modal-actions"><button id="manageContacts" class="secondary">管理联系人</button><button id="settingsDone" class="primary">完成 ${icon('check')}</button></div>`);
     $('#toggleMotion').onclick=()=>{toggleMotion();settingsModal();};$('#manageContacts').onclick=()=>{closeModal();go('contacts');};$('#settingsDone').onclick=closeModal;
@@ -609,7 +634,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
 
   function pauseAmbient(){homeMotion.finish?.();$$('.portal-node').forEach(node=>{utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');});}
   function syncMotion(){
-    document.body.classList.toggle('motion-off',paused||mediaQuery.matches);homeMotion.setPaused?.(!motionEnabled());
+    document.body.classList.toggle('motion-off',paused||mediaQuery.matches);homeMotion.setPaused?.(!motionEnabled());entry.setPaused(!motionEnabled());guide?.setPaused(!motionEnabled());
     $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
     $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
     updateUploadIsland();statusIsland?.update(taskStatusProps());practiceCounter?.update(counterProps());practiceFaq?.update({paused:!motionEnabled()});
@@ -654,7 +679,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   const afterPrint=()=>{$$('.report-details,.module-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    refreshIslands(){if(destroyed||startupPending)return;if(page==='check'){if(activeTask)renderProcessing();else renderFile();}else if(page==='practice')refreshPracticeIslands();},
-    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;viewController?.abort();api.destroy();homeMotion.destroy?.();clearFile();clearTimeout(toastTimer);utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    refreshIslands(){if(destroyed||startupPending)return;guide?.refreshIslands();if(entry.pending){entry.refreshIslands();return;}if(page==='check'){if(activeTask)renderProcessing();else renderFile();}else if(page==='practice')refreshPracticeIslands();},
+    destroy(){entry.destroy();guide?.destroy();guide=null;settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);exteriorDismiss.destroy();transitions.destroy();disposeQuizLayout();disposeIslands();disposePracticeDock();destroyed=true;activeTask=null;viewController?.abort();api.destroy();homeMotion.destroy?.();clearFile();clearTimeout(toastTimer);utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

@@ -37,6 +37,8 @@ function createFallback(host, initialForm = 'shield') {
   function place() {
     if (disposed) return;
     const placement = sculpturePlacement();
+    const titleBottom = document.querySelector('.intro-copy')?.getBoundingClientRect().bottom;
+    document.documentElement.style.setProperty('--field-title-bottom', `${Math.max(0, (titleBottom ?? 382) + 18)}px`);
     sculpture.style.left = `${placement.x}px`; sculpture.style.top = `${placement.y}px`;
     sculpture.style.width = `${placement.size * SEAL_BOUNDS.width / Math.max(SEAL_BOUNDS.width, SEAL_BOUNDS.height)}px`;
     sculpture.style.transform = `translate(-50%,-50%) scale(${.9 + entrance * .1})`;
@@ -57,7 +59,7 @@ function createFallback(host, initialForm = 'shield') {
     setEntranceProgress(value) { entrance = clamp(Number.isFinite(value) ? value : 1, 0, 1); place(); },
     setPortalFocus() {}, pointerPulse() {},
     async toggleForm() { if (!disposed) { form = form === 'shield' ? 'slogan' : 'shield'; render(); } return form; },
-    dispose() { if (disposed) return; disposed = true; detachPlacement(); document.removeEventListener('visibilitychange', place); window.removeEventListener('resize', place); root.remove(); host.classList.remove('webgl-ready'); delete document.documentElement.dataset.sceneRenderer; document.documentElement.classList.remove('scene-ambient-paused'); }
+    dispose() { if (disposed) return; disposed = true; detachPlacement(); document.removeEventListener('visibilitychange', place); window.removeEventListener('resize', place); root.remove(); host.classList.remove('webgl-ready'); document.documentElement.style.removeProperty('--field-title-bottom'); delete document.documentElement.dataset.sceneRenderer; document.documentElement.classList.remove('scene-ambient-paused'); }
   };
 }
 

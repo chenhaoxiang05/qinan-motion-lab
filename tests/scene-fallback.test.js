@@ -77,3 +77,19 @@ test('fallback ambient animation pauses for preparation, focus, hidden tabs and 
   document.dispatchEvent(new dom.window.Event('visibilitychange')); assert.equal(paused(), false);
   scene.dispose(); assert.equal(paused(), false);
 });
+
+test('fallback equipment clears the title as its layout and scroll position change', t => {
+  const dom = environment(t, '<div class="intro-copy"></div><div id="world"></div>');
+  let bottom = 460;
+  document.querySelector('.intro-copy').getBoundingClientRect = () => ({ bottom });
+  const scene = fallback(document.querySelector('#world'));
+  const reserved = () => document.documentElement.style.getPropertyValue('--field-title-bottom');
+  assert.equal(reserved(), '478px');
+  bottom = 620; dom.window.dispatchEvent(new dom.window.Event('resize'));
+  assert.equal(reserved(), '638px', 'wrapped or enlarged text retains its clear area');
+  bottom = 0; dom.window.dispatchEvent(new dom.window.Event('scroll'));
+  assert.equal(reserved(), '18px', 'a title leaving the viewport must not jump back to the default offset');
+  bottom = -80; dom.window.dispatchEvent(new dom.window.Event('scroll'));
+  assert.equal(reserved(), '0px');
+  scene.dispose(); assert.equal(reserved(), '');
+});
