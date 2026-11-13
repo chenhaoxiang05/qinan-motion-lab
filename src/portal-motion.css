@@ -1,0 +1,75 @@
+/* Keep the portal label and its hit area still; only the drawing has a loop. */
+.portal-node .node-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 28px; width: 28px; height: 28px; line-height: 0;
+}
+.portal-node .node-icon .portal-icon-svg { display: block; width: 28px; height: 28px; overflow: visible; }
+.portal-icon-svg .portal-motion-part { transform-box: view-box; transform-origin: 16px 16px; animation-play-state: paused; }
+.portal-scan-line { animation: portal-scan 2.8s ease-in-out infinite; }
+.portal-phone-handset { animation: portal-phone-ring 2.2s ease-in-out infinite; }
+.portal-phone-wave { animation: portal-phone-signal 1.6s ease-out infinite; }
+.portal-phone-wave-far { animation-delay: .24s; }
+.portal-practice-cards { animation: portal-card-float 3s ease-in-out infinite; }
+.portal-practice-check { animation: portal-check-light 3s ease-in-out infinite; }
+.portal-clock-minute { animation: portal-clock-turn 12s linear infinite; }
+.portal-clock-hour { animation: portal-clock-turn 48s linear infinite; }
+
+/* The complete split rule belongs to home-motion. This extra light never
+   changes its reveal variables, or the opacity/transform of the heading. */
+.intro-copy .title-accent > .title-rule-shine {
+  position: absolute; left: .055em; right: .085em; bottom: -.035em;
+  height: 3px; pointer-events: none; overflow: hidden; opacity: 0;
+  clip-path: polygon(0 0,98% 0,100% 100%,2% 100%);
+  background: linear-gradient(105deg,transparent 35%,#f2ffd7 50%,transparent 65%) no-repeat;
+  background-size: 35% 100%; background-position: -55% 0;
+  animation: portal-rule-shine 4.8s ease-in-out infinite;
+  animation-play-state: paused;
+}
+[data-portal-motion="running"] .portal-icon-svg .portal-motion-part,
+[data-portal-motion="running"] .intro-copy .title-accent > .title-rule-shine { animation-play-state: running; }
+.home-prepared .portal-icon-svg .portal-motion-part,
+.home-arriving .portal-icon-svg .portal-motion-part,
+.home-prepared .intro-copy .title-accent > .title-rule-shine,
+.home-arriving .intro-copy .title-accent > .title-rule-shine { animation-play-state: paused; }
+[data-portal-motion="paused"] .title-rule-shine,
+.home-prepared .title-rule-shine,.home-arriving .title-rule-shine { visibility: hidden; }
+
+@keyframes portal-scan {
+  0%,8% { transform: translateY(-3px); opacity: .2; }
+  20% { opacity: 1; }
+  70% { transform: translateY(12px); opacity: 1; }
+  88%,100% { transform: translateY(12px); opacity: .2; }
+}
+@keyframes portal-phone-ring {
+  0%,100% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg); }
+}
+@keyframes portal-phone-signal {
+  0%,100% { opacity: .2; }
+  35% { opacity: 1; }
+  75% { opacity: .35; }
+}
+@keyframes portal-card-float {
+  0%,100% { transform: translateY(1px); }
+  50% { transform: translateY(-1px); }
+}
+@keyframes portal-check-light {
+  0%,100% { opacity: .65; filter: drop-shadow(0 0 0 transparent); }
+  50% { opacity: 1; filter: drop-shadow(0 0 1px currentColor); }
+}
+@keyframes portal-clock-turn { to { transform: rotate(360deg); } }
+@keyframes portal-rule-shine {
+  0%,64% { opacity: 0; background-position: -55% 0; }
+  70% { opacity: .9; }
+  88% { opacity: .9; background-position: 155% 0; }
+  92%,100% { opacity: 0; background-position: 155% 0; }
+}
+@media (max-width: 699px) {
+  .portal-node .node-icon { display: inline-flex; flex-basis: 24px; width: 24px; height: 24px; }
+  .portal-node .node-icon .portal-icon-svg { width: 24px; height: 24px; }
+  .intro-copy .title-accent > .title-rule-shine { height: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-icon-svg .portal-motion-part,.intro-copy .title-accent > .title-rule-shine { animation: none !important; }
+  .intro-copy .title-accent > .title-rule-shine { display: none; }
+}

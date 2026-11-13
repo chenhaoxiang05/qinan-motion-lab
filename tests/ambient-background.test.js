@@ -17,94 +17,90 @@ function setup(t,{reduced=false,enabled=true,animate}={}) {
   return {dom,document,host,controller,listeners,hidden,setReduced,setEnabled(value){enabled=value;}};
 }
 const state=host=>host.dataset.ambientState;
+function recorder(){
+  const tweens=[];
+  return {tweens,animate(target,options){const tween={target,options,cancelled:false,cancel(){this.cancelled=true;}};tweens.push(tween);return tween;}};
+}
 
-test('ambient colour and geometry exist immediately without Three, React or Anime',t=>{
+test('the initial corner composition exists independently of Three, React and Anime',t=>{
   const {dom,host,document,controller}=setup(t);
   assert.equal(state(host),'running');assert.equal(host.getAttribute('aria-hidden'),'true');
-  assert.equal(host.querySelectorAll('.ambient-light').length,2);
-  assert.equal(host.querySelectorAll('.ambient-stream').length,5);
-  assert.equal(host.querySelector('canvas'),null);
-  assert.equal(host.querySelector('.field-axis'),null,'legacy equipment axes are replaced');
+  assert.equal(host.querySelectorAll('.ambient-light-fill').length,2);
+  assert.equal(host.querySelector('canvas,svg,.ambient-stream,.ambient-matrix-frame,.ambient-cobalt,.field-axis'),null);
   assert.notEqual(dom.window.getComputedStyle(host).backgroundColor,'rgba(0, 0, 0, 0)');
-  document.documentElement.dataset.sceneRenderer='webgl';
-  document.documentElement.classList.add('scene-ambient-paused');
-  controller.setPortalFocus('practice');
-  assert.equal(state(host),'running','seal renderer diagnostics cannot stop the independent environment');
+  assert.equal(dom.window.getComputedStyle(host).overflow,'hidden');
+  for(const selector of ['.ambient-environment','.ambient-rotation','.ambient-sway','.ambient-depth','.ambient-light']){
+    assert.equal(dom.window.getComputedStyle(host.querySelector(selector)).overflow,'visible',selector+' cannot crop rotated light edges');
+  }
+  document.documentElement.dataset.sceneRenderer='webgl';document.documentElement.classList.add('scene-ambient-paused');
+  controller.setPaused(false);assert.equal(state(host),'running','seal renderer state cannot freeze the independent lights');
   assert.doesNotThrow(()=>controller.setPointer(.9,.2));
   assert.equal(host.style.opacity,'');assert.equal(host.style.visibility,'');
-  for(const stream of host.querySelectorAll('.ambient-stream'))assert.notEqual(dom.window.getComputedStyle(stream).animationPlayState,'paused');
 });
 
-test('pause reasons compose and retain the painted composition until every reason clears',t=>{
+test('all pause reasons retain the same painted composition until every reason clears',t=>{
   const {dom,host,controller,hidden,setReduced,setEnabled}=setup(t);
   const composition=host.innerHTML;
   controller.setEntranceProgress(0);assert.equal(state(host),'paused');
-  assert.equal(dom.window.getComputedStyle(host.querySelector('.ambient-light')).animationPlayState,'paused');
+  for(const node of host.querySelectorAll('.ambient-sway,.ambient-light-fill'))assert.equal(dom.window.getComputedStyle(node).animationPlayState,'paused');
   controller.setPaused(true);controller.setCovered(true);hidden(true);setReduced(true);
   controller.setEntranceProgress(1);controller.setPaused(false);controller.setCovered(false);
   assert.equal(state(host),'paused');hidden(false);assert.equal(state(host),'paused');
   setReduced(false);assert.equal(state(host),'running');
   setEnabled(false);controller.setPaused(false);assert.equal(state(host),'paused');
   setEnabled(true);controller.setPaused(false);assert.equal(state(host),'running');
-  assert.equal(host.innerHTML,composition,'pausing neither blanks nor reconstructs the visual layers');
+  assert.equal(host.innerHTML,composition,'pause never blanks or reconstructs the corner lights');
   assert.equal(host.style.opacity,'');assert.equal(host.style.visibility,'');
 });
 
-test('late Matrix mounts inherit state; repeated progress and hover do not rerender it',t=>{
-  const {host,controller,hidden}=setup(t),updates=[];
-  controller.setCovered(true);controller.setPortalFocus('contacts');
-  let mounts=0,destroys=0;
-  const islands={mountMatrixField(slot,props){mounts++;slot.append(slot.ownerDocument.createElement('canvas'));updates.push({...props});return {update(value){updates.push({...value});},destroy(){assert.ok(slot.firstChild,'unmount precedes slot removal');destroys++;}};}};
-  controller.refreshIslands(islands);
-  assert.deepEqual(updates,[{paused:true,activePortal:'contacts'}]);
-  for(let i=0;i<20;i++){controller.setEntranceProgress(i/20);controller.setPortalFocus('contacts');}
-  controller.refreshIslands(islands);assert.equal(updates.length,1);
-  controller.setEntranceProgress(1);controller.setCovered(false);
-  assert.deepEqual(updates.at(-1),{paused:false,activePortal:'contacts'});
-  controller.setPortalFocus('practice');assert.deepEqual(updates.at(-1),{paused:false,activePortal:'practice'});
-  hidden(true);assert.equal(updates.at(-1).paused,true);
-  hidden(false);assert.equal(updates.at(-1).paused,false);
-  controller.refreshIslands({});assert.equal(destroys,1);assert.equal(mounts,1);
-  assert.equal(host.querySelector('canvas'),null);assert.equal(host.querySelector('.ambient-matrix-slot').hasAttribute('data-matrix-mounted'),false);
-});
-
-test('pointer parallax has one bounded Anime tween and stale callbacks cannot write after pause',t=>{
-  const tweens=[];
-  const animate=(target,options)=>{const tween={target,options,cancelled:false,cancel(){this.cancelled=true;}};tweens.push(tween);return tween;};
-  const {host,controller}=setup(t,{animate});
+test('pointer rotation and opposing shift use one bounded three-second tween',t=>{
+  const {tweens,animate}=recorder(),{host,controller}=setup(t,{animate});
   controller.setPointer(4,-3);
-  assert.equal(tweens[0].options.x,36);assert.equal(tweens[0].options.y,-36);assert.equal(tweens[0].options.duration,1000);
-  Object.assign(tweens[0].target,{x:12,y:-8});tweens[0].options.onUpdate();
-  assert.equal(host.style.getPropertyValue('--ambient-pointer-x'),'12.00px');
+  assert.equal(tweens[0].options.rotation,15);assert.equal(tweens[0].options.shift,-4);assert.equal(tweens[0].options.duration,3000);
+  Object.assign(tweens[0].target,{rotation:6,shift:-1.5});tweens[0].options.onUpdate();
+  assert.equal(host.style.getPropertyValue('--ambient-rotation'),'6.000deg');assert.equal(host.style.getPropertyValue('--ambient-shift'),'-1.5');
   controller.setPointer(.2,.8);assert.equal(tweens[0].cancelled,true);
-  Object.assign(tweens[0].target,{x:30,y:30});tweens[0].options.onUpdate();
-  assert.equal(host.style.getPropertyValue('--ambient-pointer-x'),'12.00px','cancelled callbacks cannot repaint');
+  Object.assign(tweens[0].target,{rotation:12,shift:3});tweens[0].options.onUpdate();
+  assert.equal(host.style.getPropertyValue('--ambient-rotation'),'6.000deg','obsolete callbacks cannot repaint');
   controller.setPaused(true);assert.equal(tweens[1].cancelled,true);
   controller.setPointer(1,1);assert.equal(tweens.length,2);
-  tweens[1].options.onUpdate();assert.equal(host.style.getPropertyValue('--ambient-pointer-x'),'12.00px');
+  tweens[1].options.onUpdate();assert.equal(host.style.getPropertyValue('--ambient-rotation'),'6.000deg');
   controller.setPaused(false);controller.setPointer(Number.NaN,undefined);
-  assert.equal(tweens[2].options.x,0);assert.equal(tweens[2].options.y,0);
+  assert.equal(tweens[2].options.rotation,0);assert.equal(tweens[2].options.shift,0);
 });
 
-test('replacing an owner disposes live React before DOM and disconnects old lifecycle hooks',t=>{
-  const {host,controller,listeners,hidden}=setup(t);let destroyed=0;
-  controller.refreshIslands({mountMatrixField(slot){slot.append(slot.ownerDocument.createElement('canvas'));return {update(){},destroy(){assert.ok(slot.querySelector('canvas'));destroyed++;}};}});
-  const replacement=createAmbientBackground({host});
-  t.after(()=>replacement.destroy());
-  assert.equal(destroyed,1);assert.equal(listeners.size,1,'only the replacement retains its media subscription');
+test('responsive resize cancels old coordinates before the corner geometry changes',t=>{
+  const {tweens,animate}=recorder(),{dom,host,controller}=setup(t,{animate});
+  controller.setPointer(1,1);Object.assign(tweens[0].target,{rotation:13,shift:3});tweens[0].options.onUpdate();
+  Object.defineProperty(dom.window,'innerWidth',{value:390,configurable:true});
+  dom.window.dispatchEvent(new dom.window.Event('resize'));
+  assert.equal(tweens[0].cancelled,true);assert.equal(host.style.getPropertyValue('--ambient-rotation'),'0.000deg');assert.equal(host.style.getPropertyValue('--ambient-shift'),'0');
+  Object.assign(tweens[0].target,{rotation:15,shift:4});tweens[0].options.onUpdate();
+  assert.equal(host.style.getPropertyValue('--ambient-rotation'),'0.000deg');
+  controller.setPointer(.1,.5);tweens[0].options.onComplete();controller.setCovered(true);
+  assert.equal(tweens[1].cancelled,true,'a late completion cannot discard the new tween handle');
+});
+
+test('replacing an owner cancels motion and removes the old lifecycle subscriptions',t=>{
+  const {tweens,animate}=recorder(),{host,controller,listeners,hidden,dom}=setup(t,{animate});
+  controller.setPointer(.8,.3);
+  const replacement=createAmbientBackground({host});t.after(()=>replacement.destroy());
+  assert.equal(tweens[0].cancelled,true);assert.equal(listeners.size,1,'only the replacement retains its media subscription');
   controller.setPaused(true);assert.equal(state(host),'running');
   hidden(true);assert.equal(state(host),'paused');
   replacement.destroy();assert.equal(listeners.size,0);assert.equal(host.childElementCount,0);
   assert.equal(host.hasAttribute('data-ambient-mounted'),false);
-  hidden(false);assert.equal(host.dataset.ambientState,undefined);
-  replacement.destroy();assert.equal(destroyed,1);
+  hidden(false);dom.window.dispatchEvent(new dom.window.Event('resize'));tweens[0].options.onUpdate();
+  assert.equal(host.dataset.ambientState,undefined);assert.equal(host.style.getPropertyValue('--ambient-rotation'),'');
+  replacement.destroy();
 });
 
-test('reduced motion starts with a complete still environment and optional island failure does not remove it',t=>{
-  const {host,controller,setReduced}=setup(t,{reduced:true});
-  assert.equal(state(host),'paused');
-  controller.refreshIslands({mountMatrixField(){throw new Error('optional adapter unavailable');}});
-  assert.equal(host.querySelectorAll('.ambient-light').length,2);assert.equal(host.querySelectorAll('.ambient-stream').length,5);
-  assert.equal(host.querySelector('.ambient-matrix-slot').hasAttribute('data-matrix-mounted'),false);
-  setReduced(false);assert.equal(state(host),'running');
+test('reduced motion and animation-engine failure keep complete static corner lights',t=>{
+  const {tweens,animate}=recorder(),{host,controller,setReduced}=setup(t,{reduced:true,animate});
+  assert.equal(state(host),'paused');controller.setPointer(1,1);assert.equal(tweens.length,0);
+  assert.equal(host.querySelectorAll('.ambient-light-fill').length,2);
+  setReduced(false);assert.equal(state(host),'running');controller.setPointer(.8,.8);assert.equal(tweens.length,1);
+  const other=setup(t,{animate(){throw new Error('optional pointer animation unavailable');}});
+  assert.doesNotThrow(()=>other.controller.setPointer(.7,.2));
+  assert.equal(state(other.host),'running');assert.equal(other.host.querySelectorAll('.ambient-light-fill').length,2);
 });
