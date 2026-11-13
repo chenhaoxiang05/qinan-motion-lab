@@ -23,12 +23,12 @@ function setup(t,options={}){
   const animations=[];
   const motion={animate(target,params){animations.push({target,params});if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
   const visual={pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){},...options.visual};
-  const app=initApp({...motion,visual,...(options.delay?{delay:options.delay}:{})});
+  const app=initApp({...motion,visual,islands:options.islands,startReady:options.startReady,...(options.delay?{delay:options.delay}:{})});
   const $=s=>w.document.querySelector(s);
   const goto=async hash=>{w.location.hash=hash;await tick();};
   const selectFile=async file=>{Object.defineProperty($('#fileInput'),'files',{value:[file],configurable:true});$('#fileInput').dispatchEvent(new w.Event('change'));await tick();};
   t.after(()=>{app.destroy();w.close();for(const key of keys)globalThis[key]=previous[key];assert.deepEqual(errors,[],'No uncaught UI errors');});
-  return {w,$,goto,selectFile,animations,revoked};
+  return {w,$,goto,selectFile,animations,revoked,app};
 }
 
 test('floating entry opens a window; switching material types preserves the window, panel and dropzone',async t=>{
@@ -156,4 +156,102 @@ test('report logic respects per-segment thresholds and uncertain image scores',(
   assert.equal(moduleResult({status:'completed',score:.008,threshold:.5,sensitivity_threshold:.007}).status,'uncertain');
   assert.equal(moduleResult({status:'failed',score:.9}).status,'unavailable');
   assert.equal(moduleResult({status:'completed',score:.4,threshold:.5,secondary_check:{score:.65,threshold:.7}}).status,'below');
+});
+
+function trackedIslands(){
+  const uploads=[],statuses=[];
+  const mount=(list)=>(host,initial)=>{
+    const entry={host,props:initial,updates:[initial],destroyed:false,connectedOnDestroy:false};list.push(entry);
+    if(list===uploads){
+      host.innerHTML='<button data-folder="true">选择文件</button><button data-remove-file="true">移除文件</button>';
+      host.querySelector('[data-folder]').onclick=()=>entry.props.onChoose();
+      host.querySelector('[data-remove-file]').onclick=()=>entry.props.onRemove();
+    }
+    return {update(props){entry.props={...entry.props,...props};entry.updates.push(entry.props);},destroy(){entry.destroyed=true;entry.connectedOnDestroy=host.isConnected;host.replaceChildren();}};
+  };
+  return {uploads,statuses,mountUpload:mount(uploads),mountStatus:mount(statuses)};
+}
+
+function drag(w,node,event,files=[]){
+  const ev=new w.Event(event,{bubbles:true,cancelable:true});
+  Object.defineProperty(ev,'dataTransfer',{value:{types:['Files'],files,dropEffect:'none'}});
+  node.dispatchEvent(ev);return ev;
+}
+
+test('folder second phase updates before the same click opens the picker once; cancel preserves selection',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile,revoked}=setup(t,{islands});await goto('check');$('#type-image').click();
+  await selectFile(new w.File(['image'],'kept.png',{type:'image/png'}));
+  const upload=islands.uploads[0],url=upload.props.url;let clicks=0;
+  $('#fileInput').click=()=>{clicks++;assert.equal(upload.props.open,true,'second phase is visible in the input click stack');};
+  $('[data-folder]').click();assert.equal(clicks,1);assert.equal(upload.props.file.name,'kept.png');
+  $('[data-folder]').click();assert.equal(clicks,1,'pending native picker cannot be opened twice');
+  $('#fileInput').dispatchEvent(new w.Event('cancel'));assert.equal(upload.props.open,false);
+  assert.equal(upload.props.file.name,'kept.png');assert.equal(upload.props.url,url);assert.equal(revoked.length,0);
+  assert.equal($('#analyzeButton').disabled,false);
+  $('[data-folder]').click();assert.equal(clicks,2);assert.equal($('#fileInput').value,'');
+  await selectFile(upload.props.file);assert.equal(upload.props.file.name,'kept.png');assert.equal(revoked.length,1,'same file can be selected again with a fresh preview');
+});
+
+test('empty dropzone keyboard and background clicks activate once; nested drag events stay open until the last leave',async t=>{
+  const islands=trackedIslands();const {$,goto,w}=setup(t,{islands});await goto('check');
+  const zone=$('#dropzone'),upload=islands.uploads[0];let clicks=0;$('#fileInput').click=()=>clicks++;
+  zone.click();assert.equal(clicks,1);$('#fileInput').dispatchEvent(new w.Event('cancel'));
+  zone.dispatchEvent(new w.KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));assert.equal(clicks,2);$('#fileInput').dispatchEvent(new w.Event('cancel'));
+  const child=$('[data-folder]');drag(w,zone,'dragenter');drag(w,child,'dragenter');
+  drag(w,child,'dragleave');assert.equal(upload.props.open,true);assert.equal(zone.classList.contains('dragover'),true);
+  drag(w,zone,'dragleave');assert.equal(upload.props.open,false);assert.equal(zone.classList.contains('dragover'),false);
+  drag(w,zone,'dragenter');drag(w,child,'drop',[new w.File(['audio'],'voice.mp3',{type:'audio/mpeg'})]);
+  assert.equal(clicks,2,'drop never opens the native picker');assert.equal(upload.props.file.name,'voice.mp3');assert.equal(upload.props.open,false);
+});
+
+test('upload islands update in place, ignore stale preview errors and unmount before the view disappears',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile}=setup(t,{islands});await goto('check');
+  const upload=islands.uploads[0];$('#type-image').click();assert.equal(islands.uploads.length,1);
+  await selectFile(new w.File(['image'],'first.png',{type:'image/png'}));const staleError=upload.props.onPreviewError;
+  await selectFile(new w.File(['image'],'second.png',{type:'image/png'}));staleError();assert.equal($('#fileError').textContent,'');
+  $('#motionButton').click();assert.equal(upload.props.paused,true);
+  upload.props.onPreviewError();assert.match($('#fileError').textContent,/无法预览/);
+  await goto('contacts');assert.equal(upload.destroyed,true);assert.equal(upload.connectedOnDestroy,true);
+  staleError();assert.ok($('#contactForm'));assert.equal($('#fileError'),null);
+});
+
+test('drop validation preserves an existing file when multiple or oversized files arrive',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile,revoked}=setup(t,{islands});await goto('check');
+  const first=new w.File(['audio'],'first.mp3',{type:'audio/mpeg'});await selectFile(first);
+  const zone=$('#dropzone'),upload=islands.uploads[0];
+  drag(w,zone,'drop',[first,new w.File(['audio'],'second.mp3')]);assert.match($('#fileError').textContent,/一个文件/);
+  const large=new w.File(['audio'],'large.mp3');Object.defineProperty(large,'size',{value:104857601});drag(w,zone,'drop',[large]);
+  assert.match($('#fileError').textContent,/100MB/);assert.equal(upload.props.file,first);assert.equal(revoked.length,0);
+});
+
+test('startup defers direct hash routes and entrance motion, including hash changes, then opens the latest route',async t=>{
+  const ready=pending();const {$,goto,animations}=setup(t,{url:'https://qinan.test/#check',startReady:ready.promise});
+  assert.equal($('#workspace').open,false);assert.equal($('#dropzone'),null);assert.equal(animations.length,0);
+  await goto('practice');assert.equal($('#workspace').open,false);
+  ready.resolve();await tick();assert.equal($('#workspace').open,true);assert.ok($('.question-card'));assert.ok(animations.length>0);
+});
+
+test('late optional islands hydrate an already usable native upload after startup skip',async t=>{
+  const islands={};const {$,goto,app}=setup(t,{islands});await goto('check');assert.ok($('#chooseFile'));
+  const ready=trackedIslands();Object.assign(islands,ready);app.refreshIslands();
+  assert.equal(ready.uploads.length,1);assert.ok($('[data-folder]'));assert.equal($('#chooseFile'),null);
+});
+
+test('inline status follows actual demo stages and is explicitly labeled as a simulation',async t=>{
+  const islands=trackedIslands(),waits=[];const {$}=setup(t,{islands,delay:()=>new Promise(r=>waits.push(r))});
+  $('#watchDemo').click();$('#runDemo').click();await tick();
+  const status=islands.statuses[0];assert.equal(status.props.state,'thinking');assert.match(status.props.detail,/交互演示/);
+  waits[0]();await tick();assert.equal(status.props.state,'analyzing');
+  waits[1]();await tick();assert.equal(status.props.state,'writing');
+  $('#motionButton').click();assert.equal(status.props.paused,true);
+  waits[2]();await tick();assert.equal(status.destroyed,true);assert.equal(status.connectedOnDestroy,true);assert.ok($('#exportReport'));
+});
+
+test('picker focus-return fallback settles the folder without discarding the previous file',async t=>{
+  const islands=trackedIslands();const {$,goto,w,selectFile,revoked}=setup(t,{islands});await goto('check');
+  await selectFile(new w.File(['voice'],'voice.mp3',{type:'audio/mpeg'}));
+  const upload=islands.uploads[0];$('#fileInput').click=()=>{};$('[data-folder]').click();
+  w.dispatchEvent(new w.Event('focus'));await new Promise(resolve=>setTimeout(resolve,280));
+  assert.equal(upload.props.open,false);assert.equal(upload.props.file.name,'voice.mp3');assert.equal(revoked.length,0);
+  assert.equal($('#analyzeButton').disabled,false);
 });

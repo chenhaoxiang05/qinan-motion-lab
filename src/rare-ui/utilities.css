@@ -1,0 +1,6 @@
+/* Rare UI utilities only: no Tailwind preflight or application-wide reset. */
+@layer rare-theme, rare-utilities;
+@import "tailwindcss/theme.css" layer(rare-theme) prefix(rare);
+@import "tailwindcss/utilities.css" layer(rare-utilities) prefix(rare) source(none);
+@source "./*.tsx";
+@custom-variant dark (&:where(.rare-island.dark, .rare-island.dark *));

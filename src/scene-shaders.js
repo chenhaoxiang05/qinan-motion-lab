@@ -1,4 +1,4 @@
-/** Small, local GPU passes: a pointer-flow buffer and a silver liquid field. */
+/** One local GPU pass: precise tracks, a quiet grid and finite signal pulses. */
 export const screenVertex = `
   varying vec2 vUv;
   void main() {
@@ -7,83 +7,67 @@ export const screenVertex = `
   }
 `;
 
-export const flowFragment = `
-  uniform sampler2D uPrevious;
-  uniform vec2 uPointer;
-  uniform vec2 uVelocity;
-  uniform float uAspect;
-  uniform float uDelta;
-  uniform float uInject;
-  uniform float uReset;
-  varying vec2 vUv;
-  void main() {
-    if (uReset > .5) {
-      gl_FragColor = vec4(.5, .5, 0., 1.);
-      return;
-    }
-    vec2 previousVelocity = (texture2D(uPrevious, vUv).rg - .5) * 2.;
-    vec2 advected = clamp(vUv - previousVelocity * uDelta * .12, .001, .999);
-    vec4 previous = texture2D(uPrevious, advected);
-    vec2 velocity = (previous.rg - .5) * 2. * exp(-uDelta * 3.3);
-    float pressure = previous.b * exp(-uDelta * 2.2);
-    vec2 d = (vUv - uPointer) * vec2(uAspect, 1.);
-    float stamp = exp(-dot(d, d) / .0032) * uInject;
-    velocity += uVelocity * stamp * .65;
-    pressure = min(1., pressure + stamp * .18);
-    gl_FragColor = vec4(clamp(velocity, -.92, .92) * .5 + .5, pressure, 1.);
-  }
-`;
-
-export const liquidFragment = `
-  uniform sampler2D uFlow;
+export const fuiFragment = `
   uniform vec2 uResolution;
   uniform vec2 uFocus;
+  uniform vec2 uPointer;
+  uniform vec2 uFieldSize;
   uniform vec2 uPulseOrigin;
   uniform vec2 uCenter;
+  uniform float uPointerActivity;
   uniform float uTime;
   uniform float uPulseAge;
   uniform float uDim;
   varying vec2 vUv;
 
-  float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  float rule(float distance) {
+    return 1. - smoothstep(.35, 1.05, distance);
   }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    f = f * f * (3. - 2. * f);
-    return mix(mix(hash(i), hash(i + vec2(1., 0.)), f.x),
-               mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), f.x), f.y);
+  float segment(vec2 p, vec2 a, vec2 b) {
+    vec2 axis = b - a;
+    float t = clamp(dot(p - a, axis) / max(dot(axis, axis), 1.), 0., 1.);
+    return rule(length(p - a - t * axis));
   }
   void main() {
-    float aspect = uResolution.x / uResolution.y;
-    vec2 uv = vUv;
-    vec4 flow = texture2D(uFlow, uv);
-    vec2 q = (uv - uCenter) * vec2(aspect, 1.);
-    vec2 p = q * 3.4;
-    p += (flow.rg - .5) * 1.1 + uFocus * .08;
-    float t = uTime * .075;
-    p += vec2(noise(p * .7 + vec2(t, -t)), noise(p * .6 - vec2(t, t + 5.3))) * .28;
-    // Local refractive contours wrap the sculpture, leaving the headline quiet.
-    float lens = length(p * vec2(.78, 1.1)) + sin(p.y * 2. + t) * .12;
-    float band = abs(sin(lens * 5.2 - p.x * .7 + t));
-    float broad = pow(1. - band, 4.);
-    float edge = pow(1. - band, 42.);
-    float sceneMask = exp(-dot(q, q) * 4.5);
-    float innerQuiet = smoothstep(.12, .32, length(q));
-    float ribbon = (broad * .017 + edge * .052) * sceneMask * innerQuiet;
-    vec2 pulseDelta = (uv - uPulseOrigin) * vec2(aspect, 1.);
-    float pulse = exp(-pow((length(pulseDelta) - max(0., uPulseAge) * .48) * 38., 2.))
-                * exp(-max(0., uPulseAge) * 2.5) * step(0., uPulseAge);
-    vec2 grid = fract((gl_FragCoord.xy + (flow.rg-.5) * 75.) / 14.) - .5;
-    float dotField = (1. - smoothstep(.045, .095, length(grid))) * sceneMask;
-    vec3 color = vec3(.0021, .0026, .0034);
-    color += vec3(.86, .93, 1.) * ribbon;
-    color += vec3(.65, .86, .30) * pulse * .045;
-    color += vec3(.46, .59, .67) * dotField * (.009 + flow.b * .05);
-    color += vec3(.72, .86, 1.) * flow.b * .018 * sceneMask;
-    float grain = (hash(gl_FragCoord.xy) - .5) * .00065;
-    color = max(vec3(0.), color + grain) * mix(1., .36, uDim);
-    gl_FragColor = vec4(color, 1.);
+    vec2 pixel = vUv * uResolution;
+    vec2 q = (vUv - uCenter) * uResolution;
+    vec2 extent = max(uFieldSize, vec2(80.));
+    float inField = step(abs(q.x), extent.x) * step(abs(q.y), extent.y);
+    // A fixed 24px grid is confined to the sculpture's outer equipment field.
+    // Nothing bends, blooms, fills the headline area or moves behind running text.
+    vec2 cell = abs(mod(q + 12., 24.) - 12.);
+    float outerField = step(.48, max(abs(q.x)/extent.x, abs(q.y)/extent.y));
+    float grid = max(rule(cell.x), rule(cell.y)) * inField * outerField;
+    float ticks = rule(cell.x) * step(extent.y-4., abs(q.y)) * inField;
+    float rails = rule(abs(abs(q.y) - extent.y*.76)) * step(abs(q.x),extent.x);
+    float verticalRail = rule(abs(q.x-extent.x*.84)) * step(abs(q.y),extent.y*.76);
+    float horizontalGate = step(extent.x*.40, abs(q.x));
+    float guides = rails * horizontalGate + verticalRail;
+
+    // Two short packets move along straight rails; their paths never randomize.
+    float laneLength = extent.x*.54;
+    float packetX = extent.x*.44 + mod(uTime*17., max(1.,laneLength-18.));
+    float packetA = segment(q,vec2(packetX,extent.y*.76),vec2(packetX+14.,extent.y*.76));
+    float packetB = segment(q,vec2(-packetX,-extent.y*.76),vec2(-packetX-8.,-extent.y*.76));
+    float pointerLevel = clamp(uPointerActivity,0.,1.);
+    vec2 snapped = floor((uPointer*uResolution-uCenter*uResolution)/24.)*24.;
+    float cursor = max(segment(q,snapped-vec2(6.,0.),snapped+vec2(6.,0.)),
+                       segment(q,snapped-vec2(0.,6.),snapped+vec2(0.,6.)));
+    cursor *= inField * pointerLevel;
+    float focusTick = segment(q,vec2(extent.x*.84, uFocus.y*extent.y*.5-9.),
+                                vec2(extent.x*.84, uFocus.y*extent.y*.5+9.));
+    focusTick *= min(1.,length(uFocus));
+
+    // A form change sends one rectilinear scan outward, then it fully disappears.
+    vec2 delta = (vUv-uPulseOrigin)*uResolution;
+    float scanRadius = max(0.,uPulseAge)*210.;
+    float scan = rule(abs(max(abs(delta.x),abs(delta.y))-scanRadius));
+    scan *= step(0.,uPulseAge)*(1.-smoothstep(.2,1.25,uPulseAge))*inField;
+    vec3 color = vec3(.00125,.00145,.00135);
+    color += vec3(.70,.76,.73)*(grid*.006+ticks*.018+guides*.016);
+    color += vec3(.57,1.,.008)*(packetA*.30+packetB*.18+cursor*.13+focusTick*.20+scan*.06);
+    color *= mix(1.,.32,uDim);
+    gl_FragColor = vec4(color,1.);
     #include <colorspace_fragment>
   }
 `;

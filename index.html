@@ -1,25 +1,32 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-boot="loading">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#07090b">
+  <meta name="theme-color" content="#080908">
   <meta name="description" content="亲安 QINAN · 先核实，再放心。探索属于你和家人的安心空间。">
-  <title>亲安 QINAN · 让安心发生</title>
-  <style>html,body{background:#07090b;color:#d8dde4}</style>
+  <title>亲安 QINAN · 先核实，再放心</title>
+  <style>html,body{background:#080908;color:#d8dde4}</style>
 </head>
 <body>
+  <div id="boot" class="boot-screen" role="dialog" aria-modal="true" aria-label="正在准备亲安界面">
+    <div class="boot-top"><span>QINAN® / PERSONAL SAFETY</span><span>INTERFACE 06</span></div>
+    <div class="boot-center"><div class="boot-emblem" aria-hidden="true"><i></i><i></i><i></i><i></i><span>安</span></div><div class="boot-wordmark">QINAN<span>_</span></div><p>先核实，再放心。</p></div>
+    <div class="boot-bottom"><div><span class="boot-indicator" aria-hidden="true"></span><span data-boot-stage role="status" aria-live="polite">加载界面</span><span class="boot-track" aria-hidden="true"><i></i></span></div><button type="button" data-boot-skip>跳过启动 <span>ESC ↗</span></button></div>
+  </div>
+  <script>window.__qinanBootFailSafe=setTimeout(function(){window.__qinanBootExpired=true;var b=document.getElementById('boot');if(b)b.hidden=true;document.documentElement.dataset.boot='ready'},4500)</script>
+  <noscript><style>#boot{display:none!important}</style><div class="noscript-notice">请启用 JavaScript 以使用核验、联系人与练习。</div></noscript>
   <a href="#portals" class="skip-link">跳到功能入口</a>
-  <div class="stage-background" aria-hidden="true"><div class="grain"></div></div>
+  <div class="stage-background" aria-hidden="true"><div class="field-axis field-axis-x"></div><div class="field-axis field-axis-y"></div></div>
   <div id="world" aria-hidden="true"></div>
   <header class="site-header">
     <a class="brand" href="#home" aria-label="亲安首页"><span class="brand-mark" data-icon="shield"></span><strong>亲安<span>QINAN®</span></strong><span class="brand-divider"></span><small>先核实，再放心</small></a>
     <div class="header-actions"><button id="modeButton" class="mode-button"><i></i><span id="modeLabel">交互演示</span><span class="mode-arrow">↗</span></button><button id="settings" class="icon-button" aria-label="设置" title="设置" data-icon="settings"></button></div>
   </header>
   <main id="home" class="home-stage">
-    <div class="intro-copy"><div class="edition"><span class="live-dot"></span> QINAN — A MOMENT OF CLARITY <span class="edition-no">05</span></div><h1>让<span class="title-accent">安心</span>，<br>发生<span class="title-period">。</span></h1><p>在相信之前，多一次确认。<br>把每一份在意，变成看得见的守护。</p><span class="intro-coordinate" aria-hidden="true">01 — 04 / EXPLORE YOUR SPACE</span></div>
-    <div id="sculptureAnchor" aria-hidden="true"><div class="scene-placeholder"><span>安</span></div><span class="art-caption">FIG. 01 / 安心的形状</span></div>
-    <div class="core-controller"><span class="core-tag"><i></i> 一份安心，不止一种形状</span><button id="scatterButton" class="core-control" aria-label="盾牌与安心标语切换"><span data-icon="spark"></span><span>化作安心标语</span><b>↗</b></button><span class="drag-hint">拖动，探索另一面</span></div>
+    <div class="intro-copy"><div class="edition"><span class="live-dot"></span> PERSONAL SAFETY INTERFACE <span class="edition-no">06</span></div><h1>先<span class="title-accent">核实</span>，<br>再放心<span class="title-period">。</span></h1><p>在相信之前，多一次确认。<br>把每一份在意，变成看得见的守护。</p><span class="intro-coordinate" aria-hidden="true">[ 01—04 ] &nbsp; 选择入口，开始一次确认</span></div>
+    <div class="stage-index" aria-hidden="true"><span>AN / 06</span><i></i><span>TRUST IS A HUMAN THING.</span></div><div id="sculptureAnchor" aria-hidden="true"><span class="sculpture-cross cross-tl">+</span><span class="sculpture-cross cross-br">+</span><div class="scene-placeholder"><span>安</span></div><span class="art-caption">FIG_001 &nbsp; / &nbsp; RECONFIGURABLE TRUST</span></div>
+    <div class="core-controller"><span class="core-tag"><i></i> 物态 01 / 每一种形状，都为守护</span><button id="scatterButton" class="core-control" aria-label="盾牌与安心标语切换"><span data-icon="spark"></span><span>化作安心标语</span><b>↗</b></button><span class="drag-hint">拖动，探索另一面</span></div>
     <nav id="portals" class="portal-field" aria-label="选择一个功能">
       <a class="portal-node node-check" href="#check" data-portal="check"><div class="portal-content"><span class="node-top"><span class="node-icon" data-icon="scan"></span><small><b>01</b> 核验</small><span class="node-arrow">↗</span></span><strong>检查一份材料</strong><span class="node-desc">声音 · 视频 · 照片 · 截图</span><span class="node-decoration mini-signal" aria-hidden="true"></span><span class="node-foot"><i></i> 把疑问交给亲安</span></div></a>
       <a class="portal-node node-contacts" href="#contacts" data-portal="contacts"><div class="portal-content"><span class="node-top"><span class="node-icon" data-icon="heart"></span><small><b>02</b> 联系</small><span class="node-arrow">↗</span></span><strong>听见熟悉的声音</strong><span class="node-desc">一个电话，让担心落地</span><span class="node-decoration connection-dots" aria-hidden="true"><i>你</i><b></b><i>家</i></span><span class="node-foot">把关心，交给熟悉的人</span></div></a>
@@ -28,7 +35,7 @@
     </nav>
     <div class="home-bottom"><button id="watchDemo" class="demo-link"><span class="play-orb" data-icon="play"></span><span>第一次来？<b>体验一次核验</b></span><span>↗</span></button><div class="bottom-quote">PAUSE. CHECK. CONNECT.</div><div class="motion-tools"><span id="motionState">MOTION ON</span><button id="motionButton" class="icon-button" aria-label="暂停动态效果" data-icon="pause"></button><button id="helpButton" class="icon-button" aria-label="使用帮助" data-icon="help"></button></div></div>
   </main>
-  <footer class="site-footer"><span>© QINAN <i>／</i> 为每一份在意而设计</span><span>检测提供线索，身份仍需独立核实</span></footer>
+  <footer class="site-footer"><span>© QINAN <i>／</i> INTERFACE 06 <i>／</i> <a href="https://www.rareui.com/" target="_blank" rel="noopener noreferrer">Components by Rare UI ↗</a></span><span>检测提供线索，身份仍需独立核实</span></footer>
   <div id="workspaceBackdrop" aria-hidden="true"></div>
   <dialog id="workspace" class="workspace" aria-labelledby="workspaceTitle"><div class="workspace-surface portal-surface"><header class="workspace-header"><span id="workspaceTitle">检查材料</span><button id="closeWorkspace" class="icon-button" aria-label="返回主页"></button></header><div id="workspaceBody" class="workspace-body"></div><footer class="workspace-footer"><span>QINAN / <span id="sectionNumber">01</span></span><span>先核实，再放心。<span class="small-star">✳</span></span></footer></div></dialog>
   <dialog id="modal" class="modal" aria-labelledby="modalTitle"><button id="closeModal" class="icon-button modal-close" aria-label="关闭弹窗" data-icon="close"></button><div id="modalBody"></div></dialog>

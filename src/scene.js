@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { animate } from 'animejs';
 import glyphs from './glyphs.json' with { type: 'json' };
 import { buildShieldGeometry, createVoxelTargets } from './scene-geometry.js';
-import { screenVertex, flowFragment, liquidFragment, configureVoxelMaterial, morphVisualState } from './scene-shaders.js';
+import { screenVertex, fuiFragment, configureVoxelMaterial, morphVisualState } from './scene-shaders.js';
 
 const clamp = THREE.MathUtils.clamp;
 const mobileViewport = () => window.innerWidth < 700;
@@ -30,7 +30,7 @@ function createFallback(host, initialForm = 'shield') {
   let form = initialForm;
   const root = document.createElement('div');
   root.className = 'scene-fallback';
-  root.style.cssText = 'position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 16% 75%,#30374055,transparent 42%),radial-gradient(ellipse at 90% 15%,#65717e22,transparent 40%)';
+  root.style.cssText = 'position:absolute;inset:0;pointer-events:none;background-color:#050705;background-image:linear-gradient(#dce6da05 1px,transparent 1px),linear-gradient(90deg,#dce6da05 1px,transparent 1px);background-size:48px 48px';
   const sculpture = document.createElement('div');
   sculpture.style.cssText = 'position:absolute;left:50%;transform:translate(-50%,-50%);width:210px;filter:drop-shadow(0 24px 42px #0008)';
   root.append(sculpture);
@@ -61,13 +61,13 @@ function createFallback(host, initialForm = 'shield') {
 /** A studio made of emissive softboxes, generated locally and discarded after PMREM. */
 function createStudioEnvironment(renderer) {
   const studio = new THREE.Scene();
-  studio.background = new THREE.Color(0x22262d);
+  studio.background = new THREE.Color(0x242824);
   const panels = [
     { position: [-3.5, 2.7, 4], scale: [2.2, 5.3, 1], color: 0xffffff, intensity: 6 },
-    { position: [3.2, .4, 2], scale: [.8, 5.8, 1], color: 0xd8e5f5, intensity: 4.5 },
+    { position: [3.2, .4, 2], scale: [.8, 5.8, 1], color: 0xf0f3e8, intensity: 4.5 },
     { position: [.2, 4.5, .3], scale: [4, 1.2, 1], color: 0xffffff, intensity: 4 },
-    { position: [-1.2, -3.2, 3], scale: [3, .32, 1], color: 0xe1e9e2, intensity: 2 },
-    { position: [1, 1.3, -4], scale: [1.3, 4, 1], color: 0x8da1ad, intensity: 1.2 }
+    { position: [-1.2, -3.2, 3], scale: [3, .32, 1], color: 0xe9eee0, intensity: 2 },
+    { position: [1, 1.3, -4], scale: [1.3, 4, 1], color: 0xa0ada0, intensity: 1.2 }
   ];
   panels.forEach(({ position, scale, color, intensity }) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide }));
@@ -80,7 +80,7 @@ function createStudioEnvironment(renderer) {
   return target;
 }
 
-/** One canvas: a restrained liquid field behind an actual curved metal sculpture. */
+/** One canvas: a quiet instrument field behind a curved metal sculpture. */
 export function createSanctuary(host) {
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ alpha: false, antialias: true, powerPreference: 'high-performance' }); }
@@ -117,8 +117,8 @@ export function createSanctuary(host) {
   const pointer = new THREE.Vector2(.5, .5), velocity = new THREE.Vector2();
   const focusTarget = new THREE.Vector2(), focusCurrent = new THREE.Vector2();
   const state = { progress: 0 };
-  let backgroundScene, flowScene, screenCamera, flowUniforms, backgroundUniforms;
-  let flowRead, flowWrite, voxels, voxelMaterial, voxelUniforms, solidMaterials;
+  let backgroundScene, screenCamera, backgroundUniforms;
+  let voxels, voxelMaterial, voxelUniforms, solidMaterials;
 
   const cleanupResources = () => {
     cancelAnimationFrame(raf); raf = 0;
@@ -132,19 +132,19 @@ export function createSanctuary(host) {
     const environment = own(createStudioEnvironment(renderer));
     scene.environment = environment.texture;
     scene.environmentIntensity = 1.05;
-    const fill = new THREE.HemisphereLight(0xe4eaf1, 0x181a1e, 1.1); scene.add(fill);
-    const key = new THREE.DirectionalLight(0xf7fcff, 3.2); key.position.set(-3.5, 4.5, 5);
+    const fill = new THREE.HemisphereLight(0xe9eee8, 0x151815, 1.1); scene.add(fill);
+    const key = new THREE.DirectionalLight(0xfcfff8, 3.2); key.position.set(-3.5, 4.5, 5);
     key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
     Object.assign(key.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: .1, far: 20 });
     key.shadow.bias = -.0004; key.shadow.normalBias = .012; own(key.shadow); scene.add(key);
-    const edge = new THREE.DirectionalLight(0xaebdcf, 1.8); edge.position.set(4, -.5, 2); scene.add(edge);
+    const edge = new THREE.DirectionalLight(0xc0cbb4, 1.8); edge.position.set(4, -.5, 2); scene.add(edge);
 
     geometries = buildShieldGeometry();
     Object.values(geometries).forEach(own);
-    const rim = own(new THREE.MeshPhysicalMaterial({ color: 0xe3e9ed, metalness: 1, roughness: .19, clearcoat: 1, clearcoatRoughness: .12, envMapIntensity: 1.2 }));
-    const core = own(new THREE.MeshPhysicalMaterial({ color: 0x171d25, metalness: .86, roughness: .29, clearcoat: 1, clearcoatRoughness: .15, envMapIntensity: .75 }));
+    const rim = own(new THREE.MeshPhysicalMaterial({ color: 0xe8ede5, metalness: 1, roughness: .19, clearcoat: 1, clearcoatRoughness: .12, envMapIntensity: 1.2 }));
+    const core = own(new THREE.MeshPhysicalMaterial({ color: 0x101510, metalness: .86, roughness: .29, clearcoat: 1, clearcoatRoughness: .15, envMapIntensity: .75 }));
     const letter = own(new THREE.MeshPhysicalMaterial({ color: 0xe8ede9, metalness: .92, roughness: .23, clearcoat: .7, envMapIntensity: 1.05 }));
-    const inset = own(new THREE.MeshStandardMaterial({ color: 0x626c77, metalness: 1, roughness: .3, envMapIntensity: .8 }));
+    const inset = own(new THREE.MeshStandardMaterial({ color: 0x677264, metalness: 1, roughness: .3, envMapIntensity: .8 }));
     solidMaterials = [rim, core, letter, inset];
     shield.add(new THREE.Mesh(geometries.rimGeometry, rim), new THREE.Mesh(geometries.coreGeometry, core), new THREE.Mesh(geometries.glyphGeometry, letter), new THREE.Mesh(geometries.accentGeometry, inset));
     // Render front lettering after the face while a morph fades out the solid shell.
@@ -157,24 +157,13 @@ export function createSanctuary(host) {
 
     const plane = own(new THREE.PlaneGeometry(2, 2));
     screenCamera = new THREE.Camera();
-    const flowSize = mobileViewport() ? 128 : 256;
-    const targetOptions = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false, type: THREE.UnsignedByteType };
-    flowRead = own(new THREE.WebGLRenderTarget(flowSize, flowSize, targetOptions));
-    flowWrite = own(new THREE.WebGLRenderTarget(flowSize, flowSize, targetOptions));
-    flowUniforms = {
-      uPrevious: { value: flowRead.texture }, uPointer: { value: pointer }, uVelocity: { value: velocity },
-      uAspect: { value: 1 }, uDelta: { value: 0 }, uInject: { value: 0 }, uReset: { value: 1 }
-    };
-    const flowMaterial = own(new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: flowFragment, uniforms: flowUniforms, depthTest: false, depthWrite: false, toneMapped: false }));
-    flowScene = new THREE.Scene(); flowScene.add(new THREE.Mesh(plane, flowMaterial));
-    for (const target of [flowRead, flowWrite]) { renderer.setRenderTarget(target); renderer.render(flowScene, screenCamera); }
-    renderer.setRenderTarget(null); flowUniforms.uReset.value = 0;
     backgroundUniforms = {
-      uFlow: { value: flowRead.texture }, uResolution: { value: new THREE.Vector2() },
+      uResolution: { value: new THREE.Vector2() },
+      uPointer: { value: pointer }, uPointerActivity: { value: 0 }, uFieldSize: { value: new THREE.Vector2(240,200) },
       uFocus: { value: focusCurrent }, uPulseOrigin: { value: new THREE.Vector2(.5, .5) },
       uCenter: { value: new THREE.Vector2(.5, .47) }, uTime: { value: 0 }, uPulseAge: { value: -1 }, uDim: { value: 0 }
     };
-    const backgroundMaterial = own(new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: liquidFragment, uniforms: backgroundUniforms, depthTest: false, depthWrite: false, toneMapped: false }));
+    const backgroundMaterial = own(new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: fuiFragment, uniforms: backgroundUniforms, depthTest: false, depthWrite: false, toneMapped: false }));
     backgroundScene = new THREE.Scene(); backgroundScene.add(new THREE.Mesh(plane, backgroundMaterial));
   } catch (error) {
     cleanupResources();
@@ -238,16 +227,10 @@ export function createSanctuary(host) {
     );
     group.position.y = centerY + Math.sin(elapsed * .65) * .035 * motion;
     if (delta > 0 && motion) {
-      flowUniforms.uPrevious.value = flowRead.texture;
-      flowUniforms.uDelta.value = delta;
-      flowUniforms.uInject.value = pointerStamp;
-      renderer.setRenderTarget(flowWrite);
-      renderer.render(flowScene, screenCamera);
-      [flowRead, flowWrite] = [flowWrite, flowRead];
-      pointerStamp *= Math.exp(-delta * 11);
+      pointerStamp *= Math.exp(-delta * 5);
       velocity.multiplyScalar(Math.exp(-delta * 9));
     }
-    backgroundUniforms.uFlow.value = flowRead.texture;
+    backgroundUniforms.uPointerActivity.value = pointerStamp;
     backgroundUniforms.uTime.value = elapsed;
     backgroundUniforms.uPulseAge.value = pulseAt < 0 ? -1 : elapsed - pulseAt;
     backgroundUniforms.uDim.value = focused ? 1 : 0;
@@ -281,6 +264,7 @@ export function createSanctuary(host) {
     group.position.x = (placement.x / width - .5) * frustumHeight * camera.aspect;
     group.scale.setScalar(placement.size / height * frustumHeight / 3);
     backgroundUniforms.uCenter.value.set(placement.x / width, 1 - placement.y / height);
+    backgroundUniforms.uFieldSize.value.set(placement.size*.67,placement.size*.58);
     draw();
   }
   function resize() {
@@ -290,7 +274,6 @@ export function createSanctuary(host) {
     renderer.setSize(width, height);
     camera.aspect = width / height; camera.updateProjectionMatrix();
     backgroundUniforms.uResolution.value.set(width, height);
-    flowUniforms.uAspect.value = width / height;
     rebuildVoxels(mobileViewport() ? 2048 : 4096);
     placeSculpture();
   }

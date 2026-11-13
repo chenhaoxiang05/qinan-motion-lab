@@ -1,68 +1,66 @@
-# 亲安 QINAN v5 · Experimental
+# 亲安 QINAN v6 · FUI
 
-v5 实验分支：修复文字可见性与动画生命周期，重做分层盾牌、稀疏体素和非对称首页。**真实浏览器视觉验收待完成，线上站点和 main 仍保留 v4。**
+黑白与酸绿的个人安全界面。保留四个悬浮入口、可重组的立体「安」盾牌，以及材料核验、联系人、情景练习和历史记录。
 
-## 本次更新
+在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。使用原有访问权限，开发分支为 `v6-fui`。`main` 和旧版标签继续保留历史版本。
 
-- 窗口通过独立空外壳形变，真实正文不参与布局快照。原生 dialog 保持打开直到收回结束。
-- 已作答题目的解析重开时直接显示；窗口及设置/帮助弹窗统一处理关闭、暂停、切后台、失效回调与动画异常。
-- 体素按实际字形生成：桌面 2610、移动端 2018 个，单层排列，方块边长为网格间距的 66%，取消重复叠层。
-- 1500ms 三段重组：200ms 分解、900ms 迁移、400ms 归位。盾牌采用薄银框、内凹烟灰芯和分离的立体「安」字。
-- 大字海报构图、错位悬浮入口、局部折射光带与指针点阵。功能页统一字号、留白和触控区域。
-- 盾牌位置跟随页面中的布局锚点，滚动与缩放时保持对齐；WebGL 失败保留本地 SVG 盾牌与标语。
+## v6 更新
 
-## 运行与检查
+- 背景采用稀疏直线网格、定位刻度和酸绿信号轨迹；移除液态渐变及额外流场渲染。
+- 每个标签页首次启动约 2.4 秒，同标签页刷新约 0.4 秒；可以点击跳过或按 Esc，最多等待 4 秒。实际界面与场景就绪后进入，暂停动效或系统减少动态效果会跳过。
+- 直接接入 [Rare UI](https://rareui.com) 的 Folder、Grid Reveal 与 Inline AI Status 源码。悬停展开第一阶段；点击时展开第二阶段并同步打开文件选择器；支持键盘、触屏与拖入材料。
+- 取消文件选择保留原材料，支持相同文件重新选择、替换、移除与预览回收。一次一份材料、100MB 上限和视频 3 分钟限制继续生效。
+- 答题进度队列使用 Anime.js `createLayout` / `update` / `leaveTo`，每次作答移除一个编号并让其余编号补位；解析保留，由用户点击下一题。
+- React 仅用于三个独立组件区域。主应用仍使用 Vite、原生 dialog、Anime.js 与 Three.js；组件卸载、异步回调和文字可见性与原控制器协调。
+
+## 在其他设备继续开发
 
 推荐 Node.js 22.12+ 或 Node.js 24 LTS。
 
 ```sh
+git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
+cd qinan-motion-lab
+git switch v6-fui
 npm ci
 npm run dev
+```
+
+```sh
 npm run check
 npm test
 npm run build
 ```
 
-构建产物在 dist/。没有新增运行时依赖，Three.js 继续延迟加载。中文轮廓与字体均为本地资源；许可位于 public/licenses。
+构建输出在 `dist/`，与源码一起保留。React/Motion 组件和 Three.js 场景分别延迟加载；组件样式仅生成带前缀的 Tailwind utilities，没有全局 preflight。
 
-保留原有 hash 路由、联系人 qinan-contacts 本地存储和 /api 接口。默认交互演示模式，仓库不包含模型后端。
+保留 hash 路由、`qinan-contacts` 浏览器本地存储和原 `/api` 接口。默认是**交互演示**，报告明确标注虚构示例；仓库不包含模型后端，也不包含用户运行时的联系人或上传文件。
 
-## 验证边界与发布
+## 验证与同步
 
-37 项自动化检查、语法检查和生产构建通过。自动化覆盖业务回归、真实 Anime.js 在 JSDOM 中的生命周期、文字消失复现、异常恢复、体素网格间距与字形覆盖、shader 注入和 SVG 降级。JSDOM 不具备真实浏览器布局与 GPU 合成能力，不能证明视觉闪烁已消失，也不能验证 WebGL 的最终观感或帧率。
+自动化覆盖上传与拖拽、启动就绪/超时、真实 React 组件接入、Anime.js 生命周期、弹窗文字恢复、答题队列、体素间隙和 WebGL 降级。详见 [v6 验收记录](docs/V6-ACCEPTANCE.md)。
 
-本次浏览器连接启动失败，错误为 `the gaas-browser node_repl sandbox cannot be disabled`。因此只推送实验分支，不覆盖现有站点、不创建正式 v5 标签。完成 [浏览器验收](docs/V5-ACCEPTANCE.md) 后再合并 main、标记 v5.0.0，并部署。
+当前浏览器工具启动失败，未完成真实浏览器截图、GPU 观感、移动端触控和原生文件选择器视觉验收。JSDOM 检查不能替代这些检查。按用户授权继续同步本次版本；不把未执行的视觉验收标为通过。
 
-## 参考与授权
+每次完成更新都同步 GitHub 和同一个 GPT Site，保持站点原有访问权限；协作约定见 [AGENTS.md](AGENTS.md)。部署关联保存在 `.openai/hosting.json`。普通本地开发无需修改，部署自己的 Sites 项目时需替换项目 ID。
 
-- [Rare UI / Folder](https://www.rareui.com/components/foldercomponent)：层叠入口的交互参考。
-- [Rare UI / Inline AI Status](https://www.rareui.com/components/aistatus)：核验状态的反馈节奏参考。
-- [Anime.js](https://animejs.com/)：窗口外壳、局部反馈和答题布局退场。
+## 历史版本
 
-Rare UI 的组件带有额外署名和再分发条款。本次仅参考交互思路，没有复制组件源码、引入其注册表或增加 React 运行时；本项目自主代码继续使用 MIT 许可证。
-
-## 在其他设备继续开发
-
-推荐 Node.js 22.12+（或 Node.js 24 LTS）。
-
-```sh
-git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
-cd qinan-motion-lab
-git switch v5-experimental
-npm ci
-npm run dev
-```
-
-旧版完整源码和当时的构建产物保留在 Git 历史及标签：
-
-| 标签 | 版本 |
+| 版本 | Git 入口 |
 | --- | --- |
-| v1.0.0 | 初版 |
-| v2.0.0 | 第二版 |
-| v2.1.0 | 第二版后续迭代 |
-| v3.0.0 | 第三版盾牌与共享布局 |
-| v4.0.0 | 第四版黑银液态视觉 |
+| 初版 | `v1.0.0` |
+| 第二版 | `v2.0.0` / `v2.1.0` |
+| 第三版盾牌与共享布局 | `v3.0.0` |
+| 第四版黑银视觉 | `v4.0.0` |
+| 第五版文字与体素修复 | `v5-experimental` |
+| 第六版 FUI 与 Rare UI | `v6-fui` |
 
-查看旧版可运行 `git switch --detach v3.0.0`；从旧版继续修改可运行 `git switch -c my-redesign v3.0.0`。回到最新版用 `git switch main`，切换后重新执行 `npm ci`。
+查看旧版：`git switch --detach v3.0.0`；从旧版继续：`git switch -c my-redesign v3.0.0`。切换版本后重新执行 `npm ci`。
 
-源码使用 MIT 许可证；字体及第三方依赖遵循各自许可证，字体许可随仓库保留在 public/licenses。仓库包含前端与已有 API 对接代码，不包含模型后端或运行时的个人联系人数据。`.openai/hosting.json` 是原 Sites 部署关联，普通本地开发无需修改，部署到自己的 Sites 项目时应替换项目 ID。
+## 来源与许可
+
+原创 QINAN 代码使用 [MIT](LICENSE)。**Rare UI 组件保留独立的 MIT + Commons Clause + Attribution 条款，不适用本项目的 MIT 再许可。**组件作为此应用的一部分提供，不作为独立组件库分发。来源、固定提交、校验值和修改说明见 [第三方说明](third-party/rare-ui/README.md) 与 [完整许可](third-party/rare-ui/LICENSE)。网站页脚提供可见署名，发布产物也包含许可文本。
+
+- [Rare UI Folder](https://www.rareui.com/components/foldercomponent)、[Inline AI Status](https://www.rareui.com/components/aistatus)、[Grid Reveal](https://www.rareui.com/components/gridreveal)：直接改编的组件源码，Copyright © 2026 Swami Malode。
+- [Anime.js Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation)：答题队列退场。
+- Marathon 的界面设计语言仅作为图形与布局方向参考，没有使用其商标、游戏美术或专有字体。
+- 本地字体和其他依赖遵循各自许可，字体许可随发布保留在 `public/licenses/`。

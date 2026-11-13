@@ -19,3 +19,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Third-party components
+
+The MIT license above applies to original QINAN code. It does not relicense
+the adapted Rare UI components in src/rare-ui/{folder-component,ai-status,
+grid-reveal}.tsx. Those files retain Copyright (c) 2026 Swami Malode and the
+MIT + Commons Clause License Condition v1.0 + Attribution terms preserved in
+third-party/rare-ui/LICENSE. Source provenance and modifications are recorded
+in third-party/rare-ui/SOURCES.json and README.md. Third-party dependencies
+and bundled fonts retain their respective licenses.

@@ -26,7 +26,7 @@ export function moduleResult(module) {
   return {status:'below',threshold};
 }
 
-export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
+export function initApp({animate,utils,createSpring,createLayout,visual,islands={},startReady=null,delay=ms=>new Promise(r=>setTimeout(r,ms))}) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
   const body = $('#workspaceBody'), workspace = $('#workspace'), modal = $('#modal');
@@ -38,7 +38,8 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   let realMode = getStored('qinan-real-mode','false') === 'true';
   let contacts = readArray('qinan-contacts').filter(c=>c && typeof c.name==='string' && typeof c.phone==='string');
   let records = readArray('qinan-demo-history').filter(r=>r && typeof r.id==='string' && r.demo);
-  let destroyed=false;
+  let destroyed=false, startupPending=!!startReady;
+  let uploadIsland=null, uploadHost=null, statusIsland=null, pickerPending=false, pickerReturnTimer=null, dragDepth=0;
   let page='home', routeRevision=0, viewController=null, healthController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
@@ -134,8 +135,14 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   function finishQuizExit(){const exit=quizExit;if(exit){exit.animation?.complete?.();exit.finish();}}
   function finishFeedback(){const animation=feedbackAnimation;feedbackAnimation=null;animation?.cancel?.();const feedback=$('#feedback');if(feedback){feedback.style.opacity='1';feedback.style.transform='none';}}
   function disposeQuizLayout(){finishFeedback();finishQuizExit();quizLayout?.revert();quizLayout=null;}
-  function disposeView(){disposeQuizLayout();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
+  function disposeIslands(){
+    clearTimeout(pickerReturnTimer);pickerReturnTimer=null;pickerPending=false;dragDepth=0;
+    uploadIsland?.destroy();uploadIsland=null;uploadHost=null;
+    statusIsland?.destroy();statusIsland=null;
+  }
+  function disposeView(){disposeQuizLayout();disposeIslands();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
+    if(destroyed||startupPending)return;
     const raw=location.hash.slice(1)||'home';
     const [next,rawReportId]=raw.split('/');
     let reportId=rawReportId;try{if(rawReportId)reportId=decodeURIComponent(rawReportId);}catch{reportId='';}
@@ -164,6 +171,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
 
   function renderCheck(){
     if(activeTask){renderProcessing();return;}
+    disposeIslands();
     const recoverable=realMode&&getStored('qinan-active-job','', 'sessionStorage');
     body.innerHTML=heading('01 / 材料核验','把疑问交给亲安。','一段声音，一张照片，一条消息。先核实，再放心。')+
       `${recoverable?`<div class="notice mode-notice">上次的任务仍可继续查看，不需要重复上传。<button id="resumeTask" class="text-button">恢复查看 ↗</button></div>`:''}`+
@@ -181,18 +189,41 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
       };
     });
     const dropzone=$('#dropzone');
-    dropzone.addEventListener('dragover',ev=>{ev.preventDefault();if(!activeTask)dropzone.classList.add('dragover');});
-    dropzone.addEventListener('dragleave',()=>dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop',ev=>{
-      ev.preventDefault();dropzone.classList.remove('dragover');if(activeTask)return;
-      if(ev.dataTransfer.files.length!==1){setError('每次检查一份材料，请选择一个文件。');return;}
-      setFile(ev.dataTransfer.files[0]);
+    const hasDraggedFiles=ev=>Array.from(ev.dataTransfer?.types||[]).includes('Files')||!!ev.dataTransfer?.files?.length;
+    const syncDrag=()=>{
+      dropzone.classList.toggle('dragover',dragDepth>0);
+      updateUploadIsland();
+    };
+    dropzone.addEventListener('dragenter',ev=>{
+      if(activeTask||!hasDraggedFiles(ev))return;
+      ev.preventDefault();dragDepth++;syncDrag();
     });
+    dropzone.addEventListener('dragover',ev=>{
+      if(activeTask||!hasDraggedFiles(ev))return;
+      ev.preventDefault();if(ev.dataTransfer)ev.dataTransfer.dropEffect='copy';
+      if(!dragDepth){dragDepth=1;syncDrag();}
+    });
+    dropzone.addEventListener('dragleave',ev=>{
+      ev.preventDefault();dragDepth=Math.max(0,dragDepth-1);syncDrag();
+    });
+    dropzone.addEventListener('drop',ev=>{
+      ev.preventDefault();dragDepth=0;syncDrag();if(activeTask)return;
+      if(ev.dataTransfer?.files?.length!==1){setError('每次检查一份材料，请选择一个文件。');return;}
+      finishPicker();setFile(ev.dataTransfer.files[0]);
+    });
+    // The visual folder and its controls own their clicks; blank dropzone space
+    // remains a single activation target without wrapping nested buttons.
+    dropzone.onclick=ev=>{
+      if(!selectedFile&&!ev.target.closest('button,a,input,video,audio,[role="button"]'))chooseFile();
+    };
+    dropzone.onkeydown=ev=>{
+      if(ev.target===dropzone&&!selectedFile&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();chooseFile();}
+    };
     syncType();renderFile();
   }
   function selectType(next){
     if(type===next||activeTask)return;
-    type=next;clearFile();fileError='';
+    finishPicker();dragDepth=0;type=next;clearFile();fileError='';
     // Keep the same tablist, panel, dropzone and surrounding scene in the DOM.
     syncType();renderFile();
   }
@@ -202,8 +233,29 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     $('#uploadPanel')?.setAttribute('aria-labelledby',`type-${type}`);
     $('#fileInput').accept=fileTypes[type].accept;
   }
-  function chooseFile(){if(activeTask)return;$('#fileInput').value='';$('#fileInput').accept=fileTypes[type].accept;$('#fileInput').click();}
-  $('#fileInput').onchange=ev=>{if(ev.target.files[0])setFile(ev.target.files[0]);};
+  function finishPicker(){
+    clearTimeout(pickerReturnTimer);pickerReturnTimer=null;pickerPending=false;
+    updateUploadIsland();
+  }
+  function chooseFile(){
+    if(activeTask||pickerPending||destroyed)return;
+    const input=$('#fileInput');pickerPending=true;updateUploadIsland();
+    input.value='';input.accept=fileTypes[type].accept;
+    // Keep the file picker in this trusted click/key event. Do not await the
+    // folder's second animation or defer input.click to an animation callback.
+    try{input.click();}catch{finishPicker();setError('无法打开文件选择器，请把文件拖入此处。');}
+  }
+  const fileInput=$('#fileInput');
+  fileInput.onchange=ev=>{const file=ev.target.files?.[0];finishPicker();if(file)setFile(file);};
+  const cancelPicker=()=>finishPicker();fileInput.addEventListener('cancel',cancelPicker);
+  const pickerFocusReturn=()=>{
+    if(!pickerPending)return;
+    clearTimeout(pickerReturnTimer);
+    // Older browsers do not emit input.cancel. Focus returns before change on
+    // some platforms; settling only the animation never clears the selection.
+    pickerReturnTimer=setTimeout(()=>{if(!destroyed&&pickerPending)finishPicker();},250);
+  };
+  window.addEventListener('focus',pickerFocusReturn);
   function clearFile(){
     selectionRevision++;validationCleanup?.();validationCleanup=null;validating=false;
     if(previewURL)URL.revokeObjectURL(previewURL);previewURL=null;selectedFile=null;
@@ -233,18 +285,42 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     }
     if(page==='check'&&!activeTask)renderFile();
   }
+  function uploadProps(){
+    const token=selectionRevision;
+    return {
+      file:selectedFile,url:previewURL,kind:type,open:pickerPending||dragDepth>0,
+      hovered:dragDepth>0?true:undefined,paused:!motionEnabled(),disabled:!!activeTask,
+      label:fileTypes[type].label,hint:fileTypes[type].hint,detail:fileTypes[type].detail,validating,
+      onChoose:chooseFile,
+      onRemove(){if(activeTask)return;finishPicker();clearFile();fileError='';renderFile();},
+      onPreviewError(){if(!destroyed&&token===selectionRevision&&selectedFile&&page==='check')setError('无法预览这张图片。可以更换材料，或继续核验原文件。');}
+    };
+  }
+  function updateUploadIsland(){if(uploadIsland&&uploadHost?.isConnected)uploadIsland.update(uploadProps());}
   function renderFile(){
     const dropzone=$('#dropzone');if(!dropzone)return;
     dropzone.classList.toggle('has-file',!!selectedFile);
+    dropzone.classList.toggle('dragover',dragDepth>0);
+    dropzone.tabIndex=selectedFile?-1:0;
+    dropzone.setAttribute('role','group');
+    dropzone.setAttribute('aria-label',`${fileTypes[type].label}上传区域${selectedFile?'':'，可拖入文件或按 Enter 选择文件'}`);
     $('#fileError').textContent=fileError;
     $('#analyzeButton').disabled=!selectedFile||validating||!!activeTask;
+    if(islands.mountUpload){
+      if(uploadHost!==dropzone){uploadIsland?.destroy();uploadHost=dropzone;uploadIsland=islands.mountUpload(dropzone,uploadProps());}
+      else updateUploadIsland();
+      return;
+    }
+    // A functional native fallback also keeps the app usable if the optional
+    // React island chunk cannot be loaded.
     if(!selectedFile){
       dropzone.innerHTML=`<span class="upload-glyph">${icon('upload')}</span><h2>拖放${fileTypes[type].label}，或 <button id="chooseFile" type="button">选择文件</button></h2><p>${fileTypes[type].hint}<br>${fileTypes[type].detail}</p>`;
-      dropzone.onclick=ev=>{if(!ev.target.closest('button'))chooseFile();};$('#chooseFile').onclick=chooseFile;
+      $('#chooseFile').onclick=chooseFile;
     }else{
       const media=['image','chat'].includes(type)?`<img src="${previewURL}" class="file-preview" alt="所选材料预览">`:type==='video'?`<video controls class="file-preview" src="${previewURL}" aria-label="所选视频预览"></video>`:`<audio controls class="audio-preview" src="${previewURL}" aria-label="所选声音预览"></audio>`;
       dropzone.innerHTML=`${media}<span class="selected-name">${e(selectedFile.name)}</span><p>${(selectedFile.size/1024/1024).toFixed(2)} MB${validating?' · 正在校验视频时长…':''}</p><div class="file-controls"><button id="replaceFile">更换材料 ↗</button><button id="removeFile">移除 ×</button></div>`;
-      dropzone.onclick=null;$('#replaceFile').onclick=chooseFile;$('#removeFile').onclick=()=>{clearFile();fileError='';renderFile();};
+      $('#replaceFile').onclick=chooseFile;$('#removeFile').onclick=uploadProps().onRemove;
+      const image=dropzone.querySelector('img');if(image)image.onerror=uploadProps().onPreviewError;
     }
   }
 
@@ -254,11 +330,18 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   }
   function renderProcessing(){
     if(!activeTask)return;
+    disposeIslands();
     body.innerHTML=heading('正在核验','先别着急，我们一起看看。','核验提供线索，身份仍需使用熟悉的号码再次确认。')+
-      `<section class="surface empty-state"><div class="loading-scan">${icon('scan')}</div><span class="report-badge">${activeTask.demo?'演示流程 · 非真实检测':'实际检测任务'}</span><h3 id="progressTitle">${e(activeTask.message)}</h3><p>${activeTask.demo?'所选文件留在浏览器中，下方将展示虚构的交互示例。':'材料正在由后端处理，离开这个窗口不会取消服务器检测。'}</p><div style="max-width:230px;margin:auto">${wave()}</div><button id="leaveTask" class="text-button">先回安心空间 ↗</button></section>`;
+      `<section class="surface empty-state"><div class="loading-scan">${icon('scan')}</div><span class="report-badge">${activeTask.demo?'演示流程 · 非真实检测':'实际检测任务'}</span><h3 id="progressTitle">${e(activeTask.message)}</h3><p>${activeTask.demo?'所选文件留在浏览器中，下方将展示虚构的交互示例。':'材料正在由后端处理，离开这个窗口不会取消服务器检测。'}</p><div id="taskStatus" class="task-status"></div><button id="leaveTask" class="text-button">先回安心空间 ↗</button></section>`;
+    if(islands.mountStatus)statusIsland=islands.mountStatus($('#taskStatus'),taskStatusProps());
     $('#leaveTask').onclick=()=>go('home');
   }
-  function taskMessage(message){if(!activeTask)return;activeTask.message=message;if(page==='check'&&$('#progressTitle'))$('#progressTitle').textContent=message;}
+  function taskStatusProps(){return {state:activeTask?.state||'thinking',label:activeTask?.message||'',detail:activeTask?.demo?'交互演示 · 未分析所选文件':'真实后端任务',paused:!motionEnabled()};}
+  function taskMessage(message,state='analyzing'){
+    if(!activeTask)return;activeTask.message=message;activeTask.state=state;
+    if(page==='check'&&$('#progressTitle'))$('#progressTitle').textContent=message;
+    statusIsland?.update(taskStatusProps());
+  }
   function openReport(report){currentReport=report;go(`report/${encodeURIComponent(report.id)}`);}
   function completeTask(result){
     activeTask=null;
@@ -267,25 +350,26 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   }
   async function startDemo(name,example=false){
     if(activeTask)return;
-    activeTask={demo:true,name,message:'正在展示核验流程…'};go('check');
-    for(const message of ['正在展示声音线索…','正在整理独立核实建议…','演示报告已准备好']){await delay(850);if(destroyed)return;taskMessage(message);}
+    activeTask={demo:true,name,state:'thinking',message:'正在展示核验流程…'};go('check');
+    for(const [message,state] of [['正在展示声音线索…','analyzing'],['正在整理独立核实建议…','writing'],['演示报告已准备好','done']]){await delay(850);if(destroyed)return;taskMessage(message,state);}
     completeTask({id:`demo-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,name,date:new Date().toISOString(),demo:true,example});
   }
   async function analyze(){
     if(activeTask||!selectedFile||validating)return;
     if(!realMode){startDemo(selectedFile.name);return;}
-    activeTask={demo:false,message:'正在提交材料…'};renderProcessing();
+    activeTask={demo:false,state:'loading',message:'正在提交材料…'};renderProcessing();
     const data=new FormData();data.append('file',selectedFile);data.append('scene',type==='chat'?'chat':'general');data.append('context','');
     try{
       const job=await request('/api/analyze',{method:'POST',body:data},null,60000);
       if(destroyed)return;
       if(!job.job_id)throw new Error('服务没有返回任务编号，请检查接口。');
       setStored('qinan-active-job',job.job_id,'sessionStorage');
+      taskMessage('材料已提交，等待后端检测结果…','analyzing');
       await pollJob(job.job_id);
     }catch(error){if(!destroyed)taskFailed(error.message);}
   }
   function taskFailed(message){activeTask=null;fileError=message;if(page==='check')renderCheck();else toast(message);}
-  async function resumeJob(id){if(activeTask)return;activeTask={demo:false,message:'正在恢复上次的核验…'};renderProcessing();try{await pollJob(id);}catch(error){if(!destroyed)taskFailed(error.message);}}
+  async function resumeJob(id){if(activeTask)return;activeTask={demo:false,state:'loading',message:'正在恢复上次的核验…'};renderProcessing();try{await pollJob(id);}catch(error){if(!destroyed)taskFailed(error.message);}}
   async function pollJob(id){
     let failures=0;
     for(let i=0;i<800;i++){
@@ -332,7 +416,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     }
     const q=quiz[currentQuiz];
     body.innerHTML=heading('03 / 情景练习','练一点识别力。','不必成为专家。先停一停，再核实，就是重要的一步。')+
-      `<div class="quiz-progress" aria-label="待完成题目">${quiz.map((_,i)=>i>=currentQuiz+(answer!==null?1:0)?`<span class="quiz-tile" data-question="${i}">${String(i+1).padStart(2,'0')}</span>`:'').join('')}</div><section class="surface question-card"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span id="scoreCount">已答对 ${correctCount} 题</span></div><div class="progress-track"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2>${q.title}</h2><div class="question-text">${q.text}</div><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((a,i)=>`<button class="answer" data-answer="${i}"><b>${String.fromCharCode(65+i)}</b>${a}</button>`).join('')}</div><div id="feedback"></div></section>`;
+      `<div class="quiz-queue-label"><span>待完成题目 / QUESTION QUEUE</span><span id="quizRemaining">${quiz.length-currentQuiz-(answer!==null?1:0)} / ${quiz.length}</span></div><div class="quiz-progress" aria-label="待完成题目">${quiz.map((_,i)=>i>=currentQuiz+(answer!==null?1:0)?`<span class="quiz-tile" data-question="${i}">${String(i+1).padStart(2,'0')}</span>`:'').join('')}</div><section class="surface question-card"><div class="question-meta"><span>情景 ${String(currentQuiz+1).padStart(2,'0')} / 06</span><span id="scoreCount">已答对 ${correctCount} 题</span></div><div class="progress-track"><span style="width:${currentQuiz/quiz.length*100}%"></span></div><h2>${q.title}</h2><div class="question-text">${q.text}</div><p class="eyebrow">你会怎么做？</p><div id="answers">${q.answers.map((a,i)=>`<button class="answer" data-answer="${i}"><b>${String.fromCharCode(65+i)}</b>${a}</button>`).join('')}</div><div id="feedback"></div></section>`;
     quizLayout=createLayout?.($('.quiz-progress'),{duration:250,ease:'outQuad',leaveTo:{transform:'translateY(-100px) scale(.25)',opacity:0,duration:350,ease:'out(3)'}});
     $$('[data-answer]').forEach(button=>button.onclick=()=>{if(answer!==null)return;answer=+button.dataset.answer;if(answer===q.correct)correctCount++;else mistakes.push(q);updateAnswer(q);removeProgressTile();});
     if(answer!==null)updateAnswer(q,false);
@@ -343,12 +427,13 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     let finished=false;
     const finish=()=>{
       if(finished)return;finished=true;
-      if(quizExit?.tile===tile)quizExit=null;
-      tile.remove();if(next?.isConnected)next.disabled=false;
+      if(quizExit?.tile===tile){clearTimeout(quizExit.timer);quizExit=null;}
+      tile.remove();
+      if($('#quizRemaining'))$('#quizRemaining').textContent=`${quiz.length-currentQuiz-1} / ${quiz.length}`;if(next?.isConnected)next.disabled=false;
       if(progress.isConnected&&!progress.querySelector('.quiz-tile'))progress.textContent='全部完成 ✓';
     };
     if(motionEnabled()&&layout){
-      const exit={tile,finish,animation:null};quizExit=exit;
+      const exit={tile,finish,animation:null,timer:setTimeout(()=>{exit.animation?.complete?.();finish();},850)};quizExit=exit;
       try{
         exit.animation=layout.update(()=>tile.classList.add('is-hidden'),{onComplete:finish});
         if(exit.animation?.completed)finish();
@@ -363,6 +448,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
       button.querySelector('b').textContent=i===q.correct?'✓':i===answer?'✕':String.fromCharCode(65+i);
     });
     $('#scoreCount').textContent=`已答对 ${correctCount} 题`;
+    $('.progress-track span').style.width=`${(currentQuiz+1)/quiz.length*100}%`;
     $('#feedback').innerHTML=`<div class="question-feedback" role="status"><b>${answer===q.correct?'✓ 这一步，让安心更近了。':'✕ 再多核实一步，会更稳妥。'}</b><br>${q.why}</div><button id="nextQuestion" class="primary">${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}</button>`;
     if(shouldAnimate&&windowReady&&motionEnabled()){
       const feedback=$('#feedback');
@@ -436,6 +522,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     document.body.classList.toggle('motion-off',paused||mediaQuery.matches);
     $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
     $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
+    updateUploadIsland();statusIsland?.update(taskStatusProps());
     if(!motionEnabled()){settleModal();finishFeedback();pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
   }
   function toggleMotion(){paused=!paused;setStored('qinan-motion-paused',String(paused));syncMotion();}
@@ -479,11 +566,14 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
       pointerDisposers.push(()=>{node.removeEventListener('pointermove',move);node.removeEventListener('pointerleave',leave);node.removeEventListener('focus',focus);node.removeEventListener('blur',leave);});
     });
   }
-  setupPortalMotion();syncMotion();updateMode();updateHistoryHint();route();
+  syncMotion();updateMode();updateHistoryHint();
+  const beginInterface=()=>{if(destroyed)return;startupPending=false;setupPortalMotion();syncMotion();route();};
+  if(startReady)Promise.resolve(startReady).then(beginInterface,beginInterface);else beginInterface();
   const onPrint=()=>{$$('.report-details').forEach(details=>{details.dataset.wasOpen=String(details.open);details.open=true;});};
   const afterPrint=()=>{$$('.report-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);transitions.destroy();disposeQuizLayout();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    refreshIslands(){if(!destroyed&&!startupPending&&page==='check'){if(activeTask)renderProcessing();else renderFile();}},
+    destroy(){settleModal();if(modal.open)modal.close();modal.removeEventListener('cancel',cancelModal);document.removeEventListener('visibilitychange',modalVisibility);transitions.destroy();disposeQuizLayout();disposeIslands();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('focus',pickerFocusReturn);fileInput.onchange=null;fileInput.removeEventListener('cancel',cancelPicker);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }
