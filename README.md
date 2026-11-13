@@ -36,3 +36,28 @@ npm run build
 - [Anime.js / Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation/)：答题进度的布局退场。
 
 本项目自行实现背景 shader、盾牌建模与场景交互，没有远程拉取上述网站的素材。
+
+## 在其他设备继续开发
+
+推荐 Node.js 22.12+（或 Node.js 24 LTS）。
+
+```sh
+git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
+cd qinan-motion-lab
+npm ci
+npm run dev
+```
+
+旧版完整源码和当时的构建产物保留在 Git 历史及标签：
+
+| 标签 | 版本 |
+| --- | --- |
+| v1.0.0 | 初版 |
+| v2.0.0 | 第二版 |
+| v2.1.0 | 第二版后续迭代 |
+| v3.0.0 | 第三版盾牌与共享布局 |
+| v4.0.0 | 第四版黑银液态视觉 |
+
+查看旧版可运行 `git switch --detach v3.0.0`；从旧版继续修改可运行 `git switch -c my-redesign v3.0.0`。回到最新版用 `git switch main`，切换后重新执行 `npm ci`。
+
+源码使用 MIT 许可证；字体及第三方依赖遵循各自许可证，字体许可随仓库保留在 public/licenses。仓库包含前端与已有 API 对接代码，不包含模型后端或运行时的个人联系人数据。`.openai/hosting.json` 是原 Sites 部署关联，普通本地开发无需修改，部署到自己的 Sites 项目时应替换项目 ID。
