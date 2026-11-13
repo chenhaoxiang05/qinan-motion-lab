@@ -11,7 +11,7 @@ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 // Bundle the real entry point, Anime and React for each browser lifecycle. Only
 // platform APIs absent in JSDOM are supplied; application controllers stay real.
-async function mountMain({rejectScene=false}={}) {
+async function mountMain({rejectScene=false,rejectIslands=false}={}) {
   const directory=await mkdtemp(join(base,'node_modules/.ambient-integration-'));
   const output=join(directory,'main.mjs');
   const errors=[],orphans=[],requests=[],prior=new Map();
@@ -90,6 +90,10 @@ async function mountMain({rejectScene=false}={}) {
           builder.onResolve({filter:/^\.\/scene\.js$/},args=>args.importer.endsWith('/src/main.js')?{path:'optional-scene',namespace:'failed-scene'}:undefined);
           builder.onLoad({filter:/.*/,namespace:'failed-scene'},()=>({contents:'throw new Error("Optional scene chunk unavailable");',loader:'js'}));
         }
+        if(rejectIslands){
+          builder.onResolve({filter:/^\.\/rare-islands\.(?:jsx|tsx)$/},args=>args.importer.endsWith('/src/main.js')?{path:'optional-islands',namespace:'failed-islands'}:undefined);
+          builder.onLoad({filter:/.*/,namespace:'failed-islands'},()=>({contents:'throw new Error("Optional interaction chunk unavailable");',loader:'js'}));
+        }
       }}],logLevel:'silent',
     });
     await import(pathToFileURL(output).href);
@@ -145,7 +149,7 @@ async function assertPointerRuns(harness,x) {
 test('actual main releases the independent environment after boot and coordinates real Anime, Gooey upload and React cleanup',async t=>{
   const h=await mountMain();t.after(h.cleanup);
   const {$,w,doc,exposed,until}=h;
-  await until(()=>typeof exposed.islands.mountUpload==='function','real React adapters');
+  await until(()=>doc.documentElement.dataset.sceneRenderer==='fallback','actual scene renderer fallback');
   assertEnvironment(h,'paused');assertPortalLoops(h,'paused');
   assert.equal(doc.documentElement.dataset.sceneRenderer,'fallback');
   assert.ok($('.scene-fallback'),'actual Three construction failure renders the SVG core');
@@ -160,6 +164,9 @@ test('actual main releases the independent environment after boot and coordinate
   assert.equal(doc.querySelectorAll('.title-rule-shine').length,1);assert.equal($('.home-word-scan'),null);
   assert.equal($('.intro-copy h1').textContent,'先核实，再放心。');
   assert.equal($('.home-stage').hasAttribute('inert'),false);
+  assert.equal(typeof exposed.islands.mountUpload,'undefined','a usable homepage does not initialize optional React adapters');
+  $('.node-check').dispatchEvent(new w.MouseEvent('pointerover',{bubbles:true}));
+  await until(()=>typeof exposed.islands.mountUpload==='function','portal intent loads real React adapters');
   await assertPointerRuns(h,.9);
   h.pointer(.8,.7,$('.node-check'));
   assert.equal($('.stage-background').hasAttribute('data-active-portal'),false,'portal feedback does not recreate the corner field');
@@ -284,7 +291,7 @@ test('actual main releases the independent environment after boot and coordinate
 test('a rejected optional scene import leaves the independent coloured environment usable after skipped boot',async t=>{
   const h=await mountMain({rejectScene:true});t.after(h.cleanup);
   const {$,doc,exposed,until}=h;
-  await until(()=>typeof exposed.islands.mountUpload==='function'&&$('.placeholder-slogan'),'optional scene rejection is handled');
+  await until(()=>$('.placeholder-slogan'),'optional scene rejection is handled');
   assert.equal(doc.documentElement.dataset.sceneRenderer,'fallback');
   assert.equal($('.scene-fallback'),null,'this case exercises import rejection rather than renderer fallback');
   assert.match($('.scene-placeholder').textContent,/安/);
@@ -292,6 +299,7 @@ test('a rejected optional scene import leaves the independent coloured environme
   $('[data-boot-skip]').click();
   assert.equal((await exposed.boot.finished).reason,'skip');
   await until(()=>$('.stage-background').dataset.ambientState==='running','skip releases the independent environment');
+  assert.equal(typeof exposed.islands.mountUpload,'undefined','scene failure does not initialize optional React adapters');
   await assertPointerRuns(h,.85);
   $('.node-practice').focus();
   assert.equal($('.stage-background').hasAttribute('data-active-portal'),false);
@@ -299,6 +307,33 @@ test('a rejected optional scene import leaves the independent coloured environme
   $('#motionButton').click();await assertFrozen(h);
   $('#motionButton').click();await assertPointerRuns(h,.1);
   h.destroy();
+  assert.deepEqual(h.orphans,[]);
+  assert.deepEqual(h.errors,[]);
+});
+
+test('a failed lazy interaction chunk preserves native upload and trusted picker activation',async t=>{
+  const h=await mountMain({rejectIslands:true});t.after(h.cleanup);
+  const {$,w,doc,exposed,until}=h;
+  $('[data-boot-skip]').click();
+  await exposed.boot.finished;
+  assert.equal(typeof exposed.islands.mountUpload,'undefined');
+  $('.node-check').click();
+  await until(()=>$('.entry-check.is-playing'),'native module intro');
+  $('[data-entry-skip]').click();
+  await until(()=>$('#chooseFile'),'native upload after optional chunk failure');
+  const panel=$('#uploadPanel'),dropzone=$('#dropzone');
+  $('#type-image').click();
+  assert.equal($('#uploadPanel'),panel);assert.equal($('#dropzone'),dropzone);
+  assert.match(dropzone.textContent,/照片/);
+  assert.match($('#fileInput').accept,/\.png/);
+  let inClick=false,pickerCalls=0;
+  $('#fileInput').click=()=>{assert.equal(inClick,true);pickerCalls++;};
+  inClick=true;$('#chooseFile').click();inClick=false;
+  assert.equal(pickerCalls,1,'the fallback picker remains inside the trusted activation');
+  $('#fileInput').dispatchEvent(new w.Event('cancel'));
+  assert.equal(doc.querySelector('.rare-island'),null);
+  h.destroy();
+  assert.deepEqual(h.requests,[]);
   assert.deepEqual(h.orphans,[]);
   assert.deepEqual(h.errors,[]);
 });

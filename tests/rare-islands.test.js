@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -172,6 +172,81 @@ test('real Rare UI islands preserve upload, score and review interactions', asyn
         upload.destroy(); mediaQuery.matches = false;
         if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden); else delete document.hidden;
       }
+    });
+
+    await t.test('a render failure stays inside its island and preserves current upload actions through explicit retry', async () => {
+      const faultOutput = path.join(directory, 'fault-adapter.mjs');
+      install('__qinanFolderFault', false);
+      install('__qinanFolderFaultHits', 0);
+      install('__qinanStatusFault', false);
+      await build({ entryPoints: ['src/rare-islands.jsx'], bundle: true, format: 'esm', outfile: faultOutput, packages: 'external', loader: { '.css': 'empty' }, logLevel: 'silent',
+        plugins: [{ name: 'test-runtime-component-fault', setup(builder) {
+          builder.onLoad({ filter: /\/folder-component\.tsx$/ }, async args => ({
+            contents: (await readFile(args.path, 'utf8')).replace('export default FolderComponent;', `export default function TestFolder(props: FolderComponentProps) {
+              if (globalThis.__qinanFolderFault) { globalThis.__qinanFolderFaultHits++; throw new Error('Injected render failure'); }
+              return <FolderComponent {...props} />;
+            }`), loader: 'tsx',
+          }));
+          builder.onLoad({ filter: /\/ai-status\.tsx$/ }, async args => ({
+            contents: (await readFile(args.path, 'utf8')).replace('export default AiStatus', `export default function TestStatus(props: AiStatusProps) {
+              if (globalThis.__qinanStatusFault) throw new Error('Injected status failure');
+              return <AiStatus {...props} />;
+            }`), loader: 'tsx',
+          }));
+        } }],
+      });
+      const faultAdapter = await import(pathToFileURL(faultOutput).href);
+      let trustedClick = false, pickerCalls = 0;
+      const isolatedStatus = faultAdapter.mountStatus(statusHost, { state: 'analyzing', label: '任务仍在进行', paused: true });
+      const upload = faultAdapter.mountUpload(host, {
+        kind: 'audio', label: '声音', paused: true, file: { name: 'existing.wav', size: 2048 }, url: 'blob:existing',
+        onChoose() { assert.equal(trustedClick, true); pickerCalls++; },
+        onRemove() { upload.update({ file: null, url: null }); },
+      });
+      try {
+        assert.ok(host.querySelector('[data-slot="folder"]'));
+        globalThis.__qinanFolderFault = true;
+        upload.update({ open: true });
+        assert.equal(host.dataset.islandState, 'fallback');
+        assert.match(host.querySelector('[role="alert"]').textContent, /仍可继续操作/);
+        assert.match(host.textContent, /existing.wav/);
+        assert.ok(host.querySelector('audio[controls]'), 'the selected native media is still usable after a component crash');
+        assert.match(statusHost.textContent, /任务仍在进行/, 'other roots are not removed by the failure');
+        const faultHits = globalThis.__qinanFolderFaultHits;
+        upload.update({ label: '新声音', detail: '保持当前材料' });
+        assert.equal(globalThis.__qinanFolderFaultHits, faultHits, 'ordinary props changes update the fallback without a retry loop');
+        trustedClick = true; host.querySelector('[data-upload-action="choose"]').click(); trustedClick = false;
+        assert.equal(pickerCalls, 1, 'the fallback picker is activated in the trusted click stack');
+        host.querySelector('[data-upload-action="remove"]').click();
+        assert.equal(host.querySelector('audio'), null);
+        assert.equal(document.activeElement, host.querySelector('[data-upload-action="choose"]'));
+        globalThis.__qinanFolderFault = false;
+        host.querySelector('[data-island-retry]').click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.equal(host.dataset.islandState, 'ready');
+        assert.ok(host.querySelector('[data-slot="folder"]'), 'explicit retry restores the real component');
+        assert.equal(host.querySelector('[data-island-retry]'), null);
+        assert.equal(document.activeElement, host.querySelector('[data-upload-action="choose"]'), 'retry restores focus to a usable recovered control');
+        assert.match(host.textContent, /新声音/, 'retry renders the latest state instead of the failed snapshot');
+        assert.equal(host.querySelector('audio'), null);
+        isolatedStatus.update({ decorative: true });
+        assert.ok(statusHost.querySelector('[role="status"]').closest('[aria-hidden="true"]'), 'the decorative healthy drawing does not duplicate native live status');
+        globalThis.__qinanStatusFault = true;
+        isolatedStatus.update({ label: '任务继续处理' });
+        const retry = statusHost.querySelector('[data-island-retry]');
+        assert.ok(retry);
+        assert.equal(retry.closest('[aria-hidden="true"]'), null, 'failure recovery controls remain exposed to assistive technology');
+        assert.equal(statusHost.querySelector('[role="status"]'), null, 'the fallback keeps the native live status as the single announcer');
+        globalThis.__qinanStatusFault = false; retry.click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.equal(statusHost.dataset.islandState, 'ready');
+        assert.equal(document.activeElement, statusHost, 'recovery never focuses the aria-hidden decorative drawing');
+      } finally {
+        upload.destroy(); isolatedStatus.destroy(); globalThis.__qinanFolderFault = false; globalThis.__qinanStatusFault = false;
+      }
+      assert.equal(statusHost.getAttribute('tabindex'), null);
+      assert.equal(host.getAttribute('data-island-state'), null);
+      assert.equal(host.children.length, 0);
     });
 
     await t.test('counter updates the same island and exposes one current accessible score', async () => {

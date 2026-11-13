@@ -1,16 +1,17 @@
-# 亲安 QINAN v13 · 对角光场与完整操作反馈
+# 亲安 QINAN v14 · 类型化接口、实时反馈与交接修复
 
 黑、骨白、酸绿与局部钴蓝构成的个人安全界面。四个悬浮入口连接材料核验、家人联系人、情景练习和核验记录；中央完整安印展开外框，呈现「先核实 / 再放心」。
 
-在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。沿用原有访问权限，当前开发分支为 `v13-feedback`。旧分支和标签完整保留。
+在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。沿用原有访问权限，当前开发分支为 `v14-handoff-fixes`。旧分支和标签完整保留。
 
-## v13 更新
+## v14 更新
 
-- 上传材料类型切换会同步过渡说明、格式提示和文件夹细节，保留当前上传面板、焦点与同步文件选择器调用；连续切换以最后一次选择为准。
-- 补充文件选择/移除、表单校验、联系人和记录等局部操作反馈。真实提交与读取状态仍来自 API，动画不生成检测结果。
-- 背景收敛为左上、右下两个对角大光场，参考 JIEJOE 首屏的相对位置与惯性跟随；移除点阵、刻度和多条细线，保留独立背景与透明安印。
-- 四个首页入口使用持续循环 SVG 图标：扫描框、电话与波纹、题卡与对勾、双指针时钟；手机也显示图标。“核实”的完整绿线增加独立短亮段。
-- 保留模块序章、四类教程、Gooey 材料标签、真实 API 对接与旧版历史。所有新增动效支持暂停、减少动态效果、页面隐藏和安全销毁。
+- 核心业务、API 客户端、数据契约、任务服务、React 适配器与全部 TSX 纳入 strict TypeScript；`npm run check` 包含真实 `tsc --noEmit`。保留兼容 JS 入口和已测试的原生视觉模块。
+- 修复系统减少动态时的恢复提示、视频元数据失败提示、销毁后的旧事件回调；原生核验状态也可被读屏播报。
+- 后端可通过 `events_url` 启用真实 SSE 增量文本；支持 UTF-8 分块、去重、超时、取消和同任务轮询恢复。未提供流式接口的后端保持现有轮询，真实服务仍待联调。
+- API 报告/模块/历史/任务增加运行时校验；终态、请求生命周期和错误处理集中到独立任务服务。React 岛新增异常边界、可用原生降级与重试。
+- Rare UI 在功能/教程意图或深链接时加载；主页不再提前下载整包组件。安印静止后停止重复 GPU 绘制，交互变化时唤醒，保留 v13 外观与动效。
+- 新增 CI、生产反代与缓存/SSE 配置示例、可重复运行的交接打包脚本。详见 [修复验收](docs/V14-REVIEW.md)、[接口接入](docs/API-INTEGRATION.md)、[SSE 协议](docs/SSE-CONTRACT.md)。
 
 ## 在其他设备继续开发
 
@@ -19,7 +20,7 @@
 ```sh
 git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
 cd qinan-motion-lab
-git switch v13-feedback
+git switch v14-handoff-fixes
 npm ci
 npm run dev
 ```
@@ -30,7 +31,7 @@ npm test
 npm run build
 ```
 
-构建输出在 `dist/`，与源码一起保留。React/Motion 组件和 Three.js 场景分别延迟加载；组件样式仅生成带前缀的 Tailwind utilities，没有全局 preflight。
+构建输出在 `dist/`，与源码一起保留。React/Motion 组件在功能意图时加载；Three.js 场景是启动所需的独立分块。组件样式仅生成带前缀的 Tailwind utilities，没有全局 preflight。
 
 保留 hash 路由和 `qinan-contacts` 浏览器本地存储。默认请求同源 `/api`；开发时 Vite 转发至 `http://127.0.0.1:8010`。复制 `.env.example` 为 `.env.local` 可修改代理或公开 API 地址，详见 [后端接入](docs/API-INTEGRATION.md)。
 
@@ -38,13 +39,17 @@ npm run build
 
 ## 验证与同步
 
-自动化检查覆盖材料切换、局部反馈与焦点、循环图标、双角背景、暂停和故障降级，以及原有上传、教程、答题和窗口生命周期。详见 [v13 验收记录](docs/V13-ACCEPTANCE.md)。
+自动化检查覆盖类型、接口解析、真实 HTTP SSE 测试服务、任务恢复、组件故障降级、销毁清理、按需加载及原有业务交互。详见 [v14 修复验收](docs/V14-REVIEW.md)。
 
 浏览器工具仍因环境初始化错误无法启动，真实浏览器布局、GPU 观感、移动触控和原生文件选择器尚未验收。静态图形检查和 JSDOM 回归不能代替这些检查；旧版本的独立着色器像素变化也不等同于完整页面的可见动效。
 
 每次完成更新都同步 GitHub 和同一个 GPT Site，保持站点原有访问权限；协作约定见 [AGENTS.md](AGENTS.md)。部署关联保存在 `.openai/hosting.json`。普通本地开发无需修改，部署自己的 Sites 项目时需替换项目 ID。
 
 ## 历史版本
+
+[完整版本说明与源码下载](docs/VERSIONS.md) · [GitHub Releases](https://github.com/chenhaoxiang05/qinan-motion-lab/releases)
+
+每个版本固定到原始提交，并附当时的说明和源码压缩包。当前推荐开发入口为 v14；历史版本保留用于对比，不代表已完成真实后端或真机验收。
 
 | 版本 | Git 入口 |
 | --- | --- |
@@ -61,6 +66,7 @@ npm run build
 | 第十一版内容序章与使用示例 | `v11-flow` |
 | 第十二版荧光环境与点阵交互 | `v12-ambient` |
 | 第十三版对角光场与操作反馈 | `v13-feedback` |
+| 第十四版工程与交接修复 | `v14-handoff-fixes` |
 
 查看旧版：`git switch --detach v3.0.0`；从旧版继续：`git switch -c my-redesign v3.0.0`。切换版本后重新执行 `npm ci`。
 

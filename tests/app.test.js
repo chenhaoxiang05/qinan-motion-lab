@@ -11,7 +11,10 @@ const pending=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=
 function setup(t,options={}){
   const dom=new JSDOM(html,{url:options.url||'https://qinan.test/',pretendToBeVisual:true});
   const w=dom.window;const errors=[];w.addEventListener('error',ev=>errors.push(ev.error));
-  w.matchMedia=()=>({matches:!!options.reduced,addEventListener(){},removeEventListener(){}});
+  const mediaListeners=new Set();
+  const media={matches:!!options.reduced,addEventListener(type,listener){if(type==='change')mediaListeners.add(listener);},removeEventListener(type,listener){if(type==='change')mediaListeners.delete(listener);}};
+  w.matchMedia=()=>media;
+  const setReduced=value=>{media.matches=value;for(const listener of [...mediaListeners])listener({matches:value});};
   w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
   w.HTMLDialogElement.prototype.close=function(){this.open=false;};
   w.HTMLMediaElement.prototype.load=function(){};
@@ -30,7 +33,7 @@ function setup(t,options={}){
   const goto=async hash=>{w.location.hash=hash;await tick();};
   const selectFile=async file=>{Object.defineProperty($('#fileInput'),'files',{value:[file],configurable:true});$('#fileInput').dispatchEvent(new w.Event('change'));await tick();};
   t.after(()=>{app.destroy();w.close();for(const key of keys)globalThis[key]=previous[key];assert.deepEqual(errors,[],'No uncaught UI errors');});
-  return {w,$,goto,selectFile,animations,revoked,app};
+  return {w,$,goto,selectFile,animations,revoked,app,setReduced};
 }
 
 test('floating entry opens a window; switching material types preserves the window, panel and dropzone',async t=>{
@@ -581,7 +584,7 @@ test('poll failures retain the task and selected file; explicit recovery complet
 test('an incomplete completed-job response cannot produce a successful report',async t=>{
   const {$,goto,w,selectFile}=setup(t,{delay:async()=>{},fetch:async url=>({ok:true,json:async()=>url.endsWith('/analyze')?{job_id:'bad-job'}:{status:'completed',result:{}}})});
   await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
-  assert.match($('#fileError').textContent,/无法读取/);assert.ok($('#resumeTask'));assert.equal($('#exportReport'),null);assert.equal($('.selected-name').textContent,'voice.mp3');
+  assert.match($('#fileError').textContent,/无法读取|格式有误/);assert.ok($('#resumeTask'));assert.equal($('#exportReport'),null);assert.equal($('.selected-name').textContent,'voice.mp3');
 });
 
 test('service reports preserve escaped summaries, partial module states and collapsed complete data',async t=>{
@@ -595,4 +598,129 @@ test('homepage motion receives pause/finish lifecycle and real portal identity',
   const calls=[],focus=[];const {$,goto,w}=setup(t,{homeMotion:{finish(){calls.push('finish');},setPaused(value){calls.push(value);},destroy(){calls.push('destroy');}},visual:{setPortalFocus(value){focus.push(value);}}});
   $('.node-check').dispatchEvent(new w.Event('focus'));assert.equal(focus.at(-1).portalId,'check');
   $('#motionButton').click();assert.ok(calls.includes(true));await goto('check');assert.ok(calls.includes('finish'));
+});
+
+test('system reduced motion reports the effective state without overwriting the saved manual preference',t=>{
+  const {$,w,setReduced}=setup(t,{reduced:true,storage:{'qinan-motion-paused':'true'}});
+  assert.equal($('#motionState').textContent,'MOTION OFF');
+  $('#motionButton').click();
+  assert.equal(w.localStorage.getItem('qinan-motion-paused'),'false','restore clears only the manual pause preference');
+  assert.equal($('#motionState').textContent,'MOTION OFF','system reduction still controls effective motion');
+  assert.equal($('#motionButton').dataset.paused,'true');
+  assert.match($('#toast').textContent,/系统.*减少动态/);
+  assert.doesNotMatch($('#toast').textContent,/已恢复/);
+  assert.match($('#motionButton').textContent,/系统.*减少动态/);
+  setReduced(false);
+  assert.equal($('#motionState').textContent,'MOTION ON','removing the system preference restores the saved enabled choice');
+  $('#motionButton').click();
+  assert.equal(w.localStorage.getItem('qinan-motion-paused'),'true');
+  setReduced(true);setReduced(false);
+  assert.equal($('#motionState').textContent,'MOTION OFF','system changes do not discard an explicit manual pause');
+  assert.equal(w.localStorage.getItem('qinan-motion-paused'),'true');
+});
+
+test('unreadable video metadata exposes a nonblocking service-validation warning and preserves the upload',async t=>{
+  const calls=[];
+  const {$,goto,w,selectFile}=setup(t,{delay:()=>new Promise(()=>{}),fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({job_id:'metadata-unreadable'})};}});
+  await goto('check');$('#type-video').click();
+  const create=w.document.createElement.bind(w.document);let metadata;
+  w.document.createElement=(tag,...args)=>{const node=create(tag,...args);if(tag==='video')metadata=node;return node;};
+  await selectFile(new w.File(['unreadable-video'],'unknown.avi',{type:'video/x-msvideo'}));
+  assert.equal($('#analyzeButton').disabled,true,'submission waits for the metadata attempt');
+  assert.ok(metadata);metadata.onerror();await tick();
+  const warning=$('#fileWarning');
+  assert.ok(warning);assert.equal(warning.getAttribute('role'),'status');
+  assert.match(warning.textContent,/无法.*时长/);assert.match(warning.textContent,/服务|核验/);
+  assert.equal($('#fileError').textContent,'','an unknown duration is explained as a warning, not a failed upload');
+  assert.equal($('#analyzeButton').disabled,false);
+  assert.equal($('.selected-name').textContent,'unknown.avi');
+  $('#analyzeButton').click();await tick();
+  assert.equal(calls.length,1);assert.equal(calls[0].options.method,'POST');
+  assert.equal(calls[0].options.body.get('file').name,'unknown.avi');
+});
+
+test('removing an unverified video clears its warning before choosing a new material type',async t=>{
+  const {$,goto,w,selectFile}=setup(t);await goto('check');$('#type-video').click();
+  const create=w.document.createElement.bind(w.document);let metadata;
+  w.document.createElement=(tag,...args)=>{const node=create(tag,...args);if(tag==='video')metadata=node;return node;};
+  await selectFile(new w.File(['video'],'unknown.mp4',{type:'video/mp4'}));metadata.onerror();await tick();
+  assert.ok($('#fileWarning').textContent);
+  $('#removeFile').click();assert.equal($('#fileWarning').textContent,'');
+  $('#type-image').click();await selectFile(new w.File(['photo'],'safe.png',{type:'image/png'}));
+  assert.equal($('#fileWarning').textContent,'');assert.equal($('#fileError').textContent,'');assert.equal($('#analyzeButton').disabled,false);
+});
+
+test('destroy detaches persistent controls and suppresses a late sculpture result',async t=>{
+  const sculpture=pending();let toggles=0;
+  const {$,w,app,setReduced}=setup(t,{visual:{toggleForm(){toggles++;return sculpture.promise;}}});
+  const scatter=$('#scatterButton');scatter.click();assert.equal(toggles,1);
+  app.destroy();
+  const snapshot={html:scatter.innerHTML,busy:scatter.getAttribute('aria-busy'),disabled:scatter.disabled,motion:$('#motionState').textContent,stored:w.localStorage.getItem('qinan-motion-paused')};
+  for(const selector of ['#helpButton','#howItWorks','#settings','#motionButton','#startCheck','#closeWorkspace'])$(selector).click();
+  setReduced(true);
+  assert.equal($('#modal').open,false);assert.equal($('#workspace').open,false);
+  assert.equal(w.location.hash,'','persistent controls cannot navigate after destruction');
+  assert.equal($('#motionState').textContent,snapshot.motion);assert.equal(w.localStorage.getItem('qinan-motion-paused'),snapshot.stored);
+  sculpture.resolve('slogan');await tick();
+  assert.equal(scatter.innerHTML,snapshot.html,'a late form result cannot repaint a destroyed view');
+  assert.equal(scatter.getAttribute('aria-busy'),snapshot.busy);assert.equal(scatter.disabled,snapshot.disabled);
+  scatter.disabled=false;scatter.click();assert.equal(toggles,1,'the old sculpture handler is detached');
+  $('#modal').dispatchEvent(new w.Event('cancel',{cancelable:true}));
+  $('#workspace').dispatchEvent(new w.Event('cancel',{cancelable:true}));
+  assert.equal(w.location.hash,'');
+});
+
+test('native processing status remains live and follows the actual backend message without an island',async t=>{
+  const submit=pending(),waits=[];
+  const {$,goto,w,selectFile}=setup(t,{delay:()=>new Promise(resolve=>waits.push(resolve)),fetch:url=>url.endsWith('/analyze')?submit.promise:Promise.resolve({ok:true,json:async()=>({status:'processing',message:'服务正在核验声音片段'})})});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();
+  const progress=$('#progressTitle');
+  assert.ok(progress.closest('[role="status"],[aria-live="polite"],[aria-live="assertive"]'),'native fallback has a live region independent of the optional island');
+  assert.match(progress.textContent,/提交/);
+  submit.resolve({ok:true,json:async()=>({job_id:'native-status'})});await tick();
+  waits[0]();await tick();
+  assert.equal($('#progressTitle').textContent,'服务正在核验声音片段');
+  assert.ok($('#progressTitle').closest('[role="status"],[aria-live="polite"],[aria-live="assertive"]'));
+  assert.equal($('[data-slot="ai-status"]'),null);
+});
+
+test('streamed partial text remains escaped and survives lazy status hydration and route changes until a validated report completes',async t=>{
+  let socket,posts=0;const islands={};
+  const stream=new ReadableStream({start(controller){socket=controller;}});
+  const encoder=new TextEncoder();
+  const send=(id,event,data)=>socket.enqueue(encoder.encode(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  const {$,goto,w,selectFile,app}=setup(t,{islands,fetch:async url=>{
+    if(url.endsWith('/analyze')){posts++;return {ok:true,json:async()=>({job_id:'stream-live',events_url:'/api/jobs/stream-live/events'})};}
+    if(url.endsWith('/events'))return new Response(stream,{headers:{'Content-Type':'text/event-stream'}});
+    throw new Error(`Unexpected request ${url}`);
+  }});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
+  send('1','delta',{text:'服务片段：<img src=x onerror=alert(1)>'});
+  await new Promise(resolve=>setTimeout(resolve,50));
+  assert.equal($('#streamPanel').hidden,false);assert.match($('#streamText').textContent,/<img src=x/);assert.equal($('#streamText img'),null);
+  assert.equal($('#exportReport'),null,'partial output is never presented as a completed report');
+  const received=$('#streamText').textContent;Object.assign(islands,trackedIslands());app.refreshIslands();
+  assert.equal($('#streamText').textContent,received,'lazy status hydration retains the partial content');
+  const log=$('#streamText');Object.defineProperty(log,'scrollHeight',{value:500,configurable:true});Object.defineProperty(log,'clientHeight',{value:100,configurable:true});log.scrollTop=50;
+  send('2','delta',{text:'\n第二个片段。'});await new Promise(resolve=>setTimeout(resolve,50));
+  assert.equal(log.scrollTop,50,'new fragments do not pull someone away from earlier text');
+  await goto('contacts');const form=$('#contactForm');
+  send('3','completed',{result:{id:'stream-report',summary:'服务最终报告',modules:{}}});await tick();
+  assert.equal($('#contactForm'),form,'a completed background stream does not hijack navigation');
+  assert.equal(w.sessionStorage.getItem('qinan-active-task'),null);
+  await goto('report/stream-report');assert.ok($('#exportReport'));assert.match($('.result-banner').textContent,/服务最终报告/);assert.equal(posts,1);
+});
+
+test('destroy cancels a streaming reader and pending text batch without reopening or repainting the interface',async t=>{
+  let socket,cancelled=0,streamSignal;
+  const stream=new ReadableStream({start(controller){socket=controller;},cancel(){cancelled++;}});
+  const {$,goto,w,selectFile,app}=setup(t,{fetch:async(url,options)=>{
+    if(url.endsWith('/analyze'))return {ok:true,json:async()=>({job_id:'stream-dispose',events_url:'/api/jobs/stream-dispose/events'})};
+    streamSignal=options.signal;return new Response(stream,{headers:{'Content-Type':'text/event-stream'}});
+  }});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
+  socket.enqueue(new TextEncoder().encode('id: 1\nevent: delta\ndata: {"text":"待显示片段"}\n\n'));
+  await tick();app.destroy();await new Promise(resolve=>setTimeout(resolve,55));
+  assert.equal(streamSignal.aborted,true);assert.equal(cancelled,1);assert.equal($('#streamText'),null);assert.equal($('#workspaceBody').textContent,'');
+  $('#helpButton').click();assert.equal($('#modal').open,false);assert.equal($('#scatterButton').disabled,false);
 });

@@ -84,7 +84,7 @@ export function createSanctuary(host) {
   const sculpture = new THREE.Group(); scene.add(sculpture);
   const core = new THREE.Group(), corners = [], sloganLines = []; sculpture.add(core);
   let motion, fallback, artwork, trace;
-  let disposed = false, recovering = false, gpuDisposed = false, raf = 0, layoutRaf = 0, elapsed = 0, last = 0;
+  let disposed = false, recovering = false, gpuDisposed = false, raf = 0, layoutRaf = 0, elapsed = 0, last = 0, dirty = true;
   let traceProgress = null, lastTraceAt = -Infinity;
   let paused = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false, focused = false;
   let entrance = 1, centerY = 0, baseScale = 1, yaw = 0, pitch = 0;
@@ -140,7 +140,8 @@ export function createSanctuary(host) {
     traceProgress = pose.traceProgress;
     if (traceProgress === null) { artwork.clearTrace(); trace.visible = false; lastTraceAt = -Infinity; }
     pose.corners.forEach((corner, index) => { corners[index].position.fromArray(corner.position); corners[index].rotation.z = corner.rotationZ; });
-    if (paused || focused) draw();
+    dirty = true;
+    if (paused || focused) draw(); else run();
   }
   motion = createSealMotion({ animate, onUpdate: updatePose,
     immediate: () => paused || focused || document.hidden,
@@ -154,6 +155,7 @@ export function createSanctuary(host) {
         artwork.updateTrace(traceProgress); trace.visible = true; lastTraceAt = elapsed;
       }
       focusCurrent.lerp(focusTarget, delta > 0 ? 1 - Math.exp(-delta * 5.5) : 1);
+      if (focusCurrent.distanceToSquared(focusTarget) < 1e-6) focusCurrent.copy(focusTarget);
       const closedWeight = 1 - (motion?.progress ?? 0), reveal = 1 - (1 - entrance) ** 3;
       sculpture.rotation.set((pitch + .025 - focusCurrent.y * .025) * closedWeight,
         (yaw - .045 + focusCurrent.x * .045) * closedWeight - (1 - reveal) * .25, 0);
@@ -162,18 +164,23 @@ export function createSanctuary(host) {
       // This canvas owns only the seal. The independently animated DOM field is
       // always visible through every cleared pixel, including entrance frames.
       renderer.setRenderTarget(null); renderer.clear(); renderer.render(scene, camera);
+      dirty = false;
     } catch (error) { activateFallback(error); }
   }
 
+  // The background has its own animation. A stationary seal has no time-based
+  // pose, so keep the GPU asleep until an interaction actually changes it.
+  function needsFrame() { return dirty || motion?.busy || focusCurrent.distanceToSquared(focusTarget) >= 1e-6; }
   function loop(now) {
     raf = 0;
-    if (disposed || fallback || paused || focused || document.hidden) return;
-    const delta = Math.min((now - (last || now)) / 1000, .04); last = now; elapsed += delta;
+    if (disposed || fallback || paused || focused || document.hidden || !needsFrame()) { last = 0; return; }
+    const delta = last ? Math.min((now - last) / 1000, .04) : 1 / 60; last = now; elapsed += delta;
     draw(delta);
-    if (!disposed && !fallback && !recovering) raf = requestAnimationFrame(loop);
+    if (!disposed && !fallback && !recovering && needsFrame()) raf = requestAnimationFrame(loop);
+    else last = 0;
   }
   function run() {
-    if (!raf && !disposed && !fallback && !paused && !focused && !document.hidden) { last = 0; raf = requestAnimationFrame(loop); }
+    if (!raf && !disposed && !fallback && !paused && !focused && !document.hidden && needsFrame()) { last = 0; raf = requestAnimationFrame(loop); }
   }
   function measureLayout() {
     if (disposed || fallback) return;
@@ -205,6 +212,7 @@ export function createSanctuary(host) {
       yaw = clamp(yaw + (event.clientX - previousDrag.x) * .003, -.21, .21);
       pitch = clamp(pitch + (event.clientY - previousDrag.y) * .002, -.1, .1);
       previousDrag = { x: event.clientX, y: event.clientY };
+      dirty = true; run();
     }
   }
   function pointerDown(event) {
@@ -264,7 +272,7 @@ export function createSanctuary(host) {
     setPortalFocus(direction, portalId = null) {
       if (disposed) return; if (fallback) return fallback.setPortalFocus(direction, portalId);
       focusTarget.set(Number.isFinite(direction?.x) ? clamp(direction.x, -1, 1) : 0, Number.isFinite(direction?.y) ? clamp(direction.y, -1, 1) : 0);
-      if (paused || focused) draw();
+      if (paused || focused) draw(); else run();
     },
     // Kept for app compatibility; ambient pointer effects belong to their own layer.
     pointerPulse() {},
@@ -272,7 +280,7 @@ export function createSanctuary(host) {
       if (disposed) return Promise.resolve(motion.form);
       if (fallback) return fallback.toggleForm();
       if (!motion.busy) { yaw = 0; pitch = 0; releaseDrag(); }
-      return motion.toggle();
+      const pending = motion.toggle(); run(); return pending;
     },
     dispose() {
       if (disposed) return; motion.dispose(); disposed = true; releaseDrag(); detachListeners();
