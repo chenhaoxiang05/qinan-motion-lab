@@ -1,67 +1,110 @@
-/* Local CSS keeps the signal field moving even without the optional WebGL scene. */
-.stage-background { z-index: 0; background: #080908; isolation: isolate; }
+/* The viewport environment owns its colour and motion independently of Three. */
+.stage-background {
+  position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  isolation: isolate; background: #0b110a;
+  --ambient-pointer-x: 0px; --ambient-pointer-y: 0px; --ambient-entrance: 1;
+}
+/* A coloured first frame also exists before JavaScript, or if its chunk fails. */
 .stage-background::before {
-  content: ''; position: absolute; left: 35%; top: 11%; width: 58%; height: 65%;
-  background-color: #10150d;
-  background-image: linear-gradient(120deg,transparent calc(50% - 36px),#a7d56a25 calc(50% - 36px),#a7d56a25 calc(50% + 34px),#bed99c70 calc(50% + 35px),transparent calc(50% + 37px));
-  background-size: 250% 100%; background-position: 100% 0;
-  animation: field-register-sweep 5.2s linear infinite;
-  clip-path: polygon(0 14%,75% 0,100% 22%,100% 86%,24% 100%,0 77%);
-  opacity: .94; pointer-events: none;
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 75% 21%,#b8f62b70 0, #8dbc1830 25%,transparent 53%),
+    radial-gradient(ellipse at 26% 91%,#bcf82b69 0,#8ab61b2e 25%,transparent 55%);
 }
-.stage-background::after {
-  content: ''; position: absolute; inset: auto -4% 9% 44%; height: 22%; margin: 0; border: 0;
-  background: #11160f;
-  clip-path: polygon(0 0,79% 0,100% 60%,100% 100%,18% 100%);
-  pointer-events: none;
+.stage-background::after { content: none; }
+.stage-background[data-ambient-mounted]::before { content: none; }
+.stage-background > .field-axis { display: none; }
+.ambient-environment,.ambient-parallax,.ambient-depth,.ambient-streams,.ambient-veil {
+  position: absolute; inset: 0; pointer-events: none;
 }
-.stage-background .field-axis-x {
-  top: 10%; right: -3%; left: 62%; height: 17%; width: auto;
-  background: #192014;
-  clip-path: polygon(20% 0,100% 0,100% 100%,0 100%);
+.ambient-environment { overflow: hidden; }
+.ambient-parallax {
+  inset: -42px; transform: translate3d(var(--ambient-pointer-x),var(--ambient-pointer-y),0);
+  will-change: transform;
 }
-.stage-background .field-axis-y {
-  top: 29%; bottom: 24%; left: 66%; width: 25%; height: auto;
-  overflow: hidden; background: transparent;
-  clip-path: polygon(0 0,100% 12%,100% 100%,0 90%);
+.ambient-depth { opacity: calc(.86 + var(--ambient-entrance)*.14); }
+.ambient-light {
+  position: absolute; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%,#ceff267d 0%,#b9ef005e 22%,#8dbd0033 44%,#6b9d0000 72%);
+  will-change: transform;
 }
-.stage-background .field-axis-y::before {
-  content: ''; position: absolute; inset: -24px; pointer-events: none;
-  background-image: linear-gradient(#99ac6b29 1px,transparent 1px),linear-gradient(90deg,#99ac6b29 1px,transparent 1px);
-  background-size: 24px 24px;
-  animation: field-grid-feed 6s linear infinite;
+.ambient-light-primary {
+  width: 65vw; min-width: 680px; max-width: 1260px; left: 37%; top: -35%;
+  transform: translate3d(-4%,8%,0) scale(1.04);
+  animation: ambient-field-primary 15s ease-in-out -5s infinite alternate;
 }
-.stage-background .field-axis-y::after {
-  content: ''; position: absolute; left: 9px; top: 32px; width: 40px; height: 8px;
-  background: #386aff; pointer-events: none;
-  animation: field-calibration-tab 6.4s ease-in-out infinite;
+.ambient-light-secondary {
+  width: 50vw; min-width: 540px; max-width: 980px; left: -9%; bottom: -26%;
+  background: radial-gradient(ellipse at 50% 50%,#dbff3b8c 0%,#bded1466 20%,#84b42136 46%,#729c0000 72%);
+  transform: translate3d(8%,-8%,0) scale(1.08);
+  animation: ambient-field-secondary 19s ease-in-out -11s infinite alternate;
 }
-@keyframes field-register-sweep {
-  0% { background-position: 100% 0; }
-  53.846%,100% { background-position: 0% 0; }
+.ambient-streams { width: 100%; height: 100%; overflow: visible; }
+.ambient-track { fill: none; stroke: #b5d75e; stroke-opacity: .16; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ambient-stream {
+  fill: none; stroke: #d1ff44; stroke-opacity: .72; stroke-width: 1.8;
+  stroke-dasharray: 84 620; stroke-dashoffset: 0; vector-effect: non-scaling-stroke;
+  animation: ambient-line-flow var(--stream-duration,5.4s) linear var(--stream-delay,-2s) infinite;
+  transition: stroke-opacity .4s,stroke-width .4s;
 }
-@keyframes field-grid-feed { to { transform: translateY(24px); } }
-@keyframes field-calibration-tab {
-  0%,100% { transform: translateX(0); }
-  40.625%,59.375% { transform: translateX(120px); }
+.ambient-stream:nth-of-type(4n) { stroke: #ecffd1; }
+.stage-background[data-active-portal="check"] .ambient-stream[data-route="check"],
+.stage-background[data-active-portal="contacts"] .ambient-stream[data-route="contacts"],
+.stage-background[data-active-portal="practice"] .ambient-stream[data-route="practice"],
+.stage-background[data-active-portal="history"] .ambient-stream[data-route="history"] {
+  stroke-opacity: 1; stroke-width: 3;
 }
-/* The real scene owns these phases when available. In fallback they freeze at
-   the current frame on pause, focus, hidden tabs or before the entrance ends. */
-:is(html[data-scene-renderer="webgl"],html.home-prepared,html.home-arriving,html.scene-ambient-paused,body.feature-open) .stage-background::before,
-:is(html[data-scene-renderer="webgl"],html.home-prepared,html.home-arriving,html.scene-ambient-paused,body.feature-open) .stage-background .field-axis-y::before,
-:is(html[data-scene-renderer="webgl"],html.home-prepared,html.home-arriving,html.scene-ambient-paused,body.feature-open) .stage-background .field-axis-y::after {
-  animation-play-state: paused;
+.ambient-geometry { fill: none; stroke: #b8cf86; stroke-opacity: .38; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ambient-cobalt { fill: #3568ff; stroke: none; }
+.ambient-veil {
+  background: linear-gradient(90deg,#0b110aa6 0%,#0b110a80 25%,#0b110a1a 53%,transparent 70%),
+    linear-gradient(180deg,#0b110a38 0,transparent 24%,transparent 80%,#0b110a4d 100%);
 }
-/* A render failure must leave these flat panels visible behind the local SVG. */
-#world .scene-fallback { background: transparent !important; }
+.ambient-matrix-frame {
+  position: absolute; width: 240px; height: 200px; right: 7%; bottom: 9%;
+  opacity: .67; transform: skewY(-8deg); overflow: hidden;
+  border-top: 1px solid #c5e48138; border-bottom: 1px solid #c5e48124;
+}
+.ambient-matrix-frame::before {
+  content: ''; position: absolute; left: 0; top: -1px; width: 38px; height: 3px; background: #b9ed3d;
+}
+.ambient-matrix-slot { position: absolute; inset: 5px 0; display: grid; place-items: center; }
+.ambient-matrix-slot:not([data-matrix-mounted])::before {
+  content: ''; position: absolute; inset: 15px;
+  background-image: radial-gradient(circle,#c8ed7b88 1px,transparent 1.5px);
+  background-size: 19px 19px; opacity: .55;
+  mask-image: linear-gradient(135deg,transparent,#000 28%,#000 65%,transparent);
+}
+.ambient-matrix-slot canvas { max-width: 100%; max-height: 100%; }
+@keyframes ambient-field-primary {
+  from { transform: translate3d(-4%,8%,0) scale(1.04); }
+  to { transform: translate3d(11%,-5%,0) scale(1.16); }
+}
+@keyframes ambient-field-secondary {
+  from { transform: translate3d(8%,-8%,0) scale(1.08); }
+  to { transform: translate3d(-7%,9%,0) scale(.95); }
+}
+@keyframes ambient-line-flow { to { stroke-dashoffset: -704; } }
+.stage-background[data-ambient-state="paused"] .ambient-light,
+.stage-background[data-ambient-state="paused"] .ambient-stream { animation-play-state: paused; }
+.stage-background[data-ambient-state="paused"] .ambient-stream { transition: none; }
 @media (max-width: 999px) {
-  .stage-background::before { left: 10%; top: max(38%,var(--field-title-bottom,400px)); width: 105%; height: 46%; opacity: .88; }
-  .stage-background::after { left: 74%; right: -20%; bottom: 18%; height: 20%; opacity: .5; }
-  .stage-background .field-axis-x { display: none; }
-  .stage-background .field-axis-y { left: 54%; top: max(42%,var(--field-title-bottom,400px)); bottom: 8%; width: 46%; }
+  .ambient-light-primary { width: 84vw; min-width: 600px; left: 30%; top: -19%; }
+  .ambient-light-secondary { width: 70vw; min-width: 560px; left: -29%; bottom: -34%; }
+  .ambient-matrix-frame { right: 4%; bottom: 8%; width: 190px; height: 170px; opacity: .58; }
+}
+@media (max-width: 699px) {
+  .ambient-parallax { inset: -42px; }
+  .ambient-light-primary { width: 130vw; min-width: 0; max-width: none; left: 9%; top: -7%; }
+  .ambient-light-secondary { width: 125vw; min-width: 0; max-width: none; left: -62%; bottom: -3%; }
+  .ambient-veil {
+    background: linear-gradient(110deg,#0b110a8c 0%,#0b110a47 42%,transparent 76%),
+      linear-gradient(180deg,#0b110a24 0,transparent 40%,#0b110a14 100%);
+  }
+  .ambient-stream { stroke-width: 1.4; stroke-opacity: .6; }
+  .ambient-matrix-frame { width: 144px; height: 144px; right: -18px; bottom: 10%; opacity: .46; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage-background,.stage-background::before,.stage-background::after,.stage-background .field-axis,
-  .stage-background .field-axis::before,.stage-background .field-axis::after { animation: none; transition: none; }
+  .ambient-light,.ambient-stream { animation-play-state: paused !important; transition: none; }
+  .ambient-parallax { will-change: auto; }
 }
 @media print { .stage-background { display: none !important; } }

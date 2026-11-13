@@ -1,16 +1,16 @@
-# 亲安 QINAN v11 · 内容序章与清晰动效
+# 亲安 QINAN v12 · 荧光环境与点阵交互
 
 黑、骨白、酸绿与局部钴蓝构成的个人安全界面。四个悬浮入口连接材料核验、家人联系人、情景练习和核验记录；中央完整安印展开外框，呈现「先核实 / 再放心」。
 
-在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。沿用原有访问权限，当前开发分支为 `v11-flow`。旧分支和标签完整保留。
+在线版本：[qinan-motion-lab.shadowsky059.chatgpt.site](https://qinan-motion-lab.shadowsky059.chatgpt.site)。沿用原有访问权限，当前开发分支为 `v12-ambient`。旧分支和标签完整保留。
 
-## v11 更新
+## v12 更新
 
-- 背景改为更可见的大范围局部扫描、加长信号包、6 秒网格位移和钴蓝校准标；手机与无 WebGL 降级环境也有明显运动，暂停与减少动态效果仍生效。
-- 四个功能窗口和报告增加短暂的内容序章：先显示模块标识与动态图形，再展开实际内容。可立即进入；切换上传类型和回答下一题不会重复整个序章。
-- “第一次来？了解使用方法”恢复为可操作教程：声音、视频、照片、聊天截图四组本地示例，依次查看材料、具体线索和独立核实建议。示例不提交接口，也不写入真实核验记录。
-- 恢复“核实”下面的绿色强调线，调整为贴字的双段校准线，配合短暂绘制与扫光；改善按钮、入口与表单的细节反馈。
-- 扩展现有 Rare UI 组件的使用：模块序章的状态、教程步骤计数与问题展开。保留完整安印、本地字体、真实 API 流程和原有上传、答题、联系人功能。
+- 背景独立于安印渲染，使用两个大面积黄绿光场、五条跨屏流线与局部钴蓝刻度；无需移动鼠标也会持续运动，悬停卡片不再停止线路。
+- Three.js 改为透明画布，只渲染完整安印。模块下载、GPU 初始化或渲染失败会降级为 SVG 安印，不会用黑色画布挡住背景。
+- 真实接入 Rare UI Matrix Orb 点阵场与 Gooey Nav 材料选择动画，保留原生按钮、键盘操作和上传流程。无新增依赖，组件来源与许可完整保留。
+- 背景支持缓动鼠标跟随、手机构图、暂停与减少动态效果；暂停后仍有彩色静态层次，按钮明确显示“恢复动效”。
+- 保留 v11 的模块内容序章、四类使用示例、分段绿色强调线，以及真实 API 对接、联系人和答题功能。
 
 ## 在其他设备继续开发
 
@@ -19,7 +19,7 @@
 ```sh
 git clone https://github.com/chenhaoxiang05/qinan-motion-lab.git
 cd qinan-motion-lab
-git switch v11-flow
+git switch v12-ambient
 npm ci
 npm run dev
 ```
@@ -38,9 +38,9 @@ npm run build
 
 ## 验证与同步
 
-自动化检查覆盖模块序章、教程示例隔离、字体与启动、背景时间帧、完整安印，以及上传、接口恢复、答题、联系人与窗口生命周期。详见 [v11 验收记录](docs/V11-ACCEPTANCE.md)。
+自动化检查覆盖独立背景与透明安印、暂停和故障降级、Rare UI 点阵与材料选择，以及原有上传、教程、答题和窗口生命周期。详见 [v12 验收记录](docs/V12-ACCEPTANCE.md)。
 
-浏览器工具仍因环境初始化错误无法启动，真实浏览器布局、GPU 观感、移动触控和原生文件选择器尚未验收。原生着色器帧、字体/SVG 栅格图和 JSDOM 回归不能代替这些检查。
+浏览器工具仍因环境初始化错误无法启动，真实浏览器布局、GPU 观感、移动触控和原生文件选择器尚未验收。静态图形检查和 JSDOM 回归不能代替这些检查；旧版本的独立着色器像素变化也不等同于完整页面的可见动效。
 
 每次完成更新都同步 GitHub 和同一个 GPT Site，保持站点原有访问权限；协作约定见 [AGENTS.md](AGENTS.md)。部署关联保存在 `.openai/hosting.json`。普通本地开发无需修改，部署自己的 Sites 项目时需替换项目 ID。
 
@@ -59,6 +59,7 @@ npm run build
 | 第九版信号海报与机械安印 | `v9-signal` |
 | 第十版完整安印与动态信号场 | `v10-motion` |
 | 第十一版内容序章与使用示例 | `v11-flow` |
+| 第十二版荧光环境与点阵交互 | `v12-ambient` |
 
 查看旧版：`git switch --detach v3.0.0`；从旧版继续：`git switch -c my-redesign v3.0.0`。切换版本后重新执行 `npm ci`。
 
@@ -68,6 +69,8 @@ npm run build
 
 - [Rare UI Folder](https://www.rareui.com/components/foldercomponent)、[Inline AI Status](https://www.rareui.com/components/aistatus)、[Grid Reveal](https://www.rareui.com/components/gridreveal)：直接改编的组件源码，Copyright © 2026 Swami Malode。
 - [Rare UI Faq](https://www.rareui.com/r/faq.json) 与 [AnimatedCounter](https://www.rareui.com/r/animated-counter.json)：直接改编的复盘与计分组件。
+- [Rare UI Matrix Orb](https://www.rareui.com/components/matrixorb) 与 [Gooey Nav](https://www.rareui.com/components/gooeynav)：直接改编的点阵场与材料选择组件。
+- [JIEJOE 首页](https://www.jiejoe.com/home)：参考大面积光场、跨屏动线与鼠标跟随的层次关系；不包含其图片、字体或网站源码。
 - [Anime.js Exit layout animation](https://animejs.com/documentation/layout/usage/exit-layout-animation)：答题队列退场。
 - [Michael Rigley 的 Marathon 设计案例](https://www.michaelrigley.com/work/marathon/)作为配色、图形和信息排布参考；不包含游戏商标、美术或专有字体。QINAN 英文字标为原创路径，中文轮廓来自许可允许的 Noto Sans CJK；动效使用 Anime.js，并非 Rare UI 的 Valorant 组件。
 - 本地字体和其他依赖遵循各自许可，字体许可随发布保留在 `public/licenses/`。

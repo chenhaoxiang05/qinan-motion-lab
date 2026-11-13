@@ -1,5 +1,10 @@
 /* Small responses follow the user's action; live text never gains a filter/mask. */
 :root{--interaction-ease:cubic-bezier(.2,.75,.25,1)}
+/* A persistent label also makes a previously saved pause discoverable on mobile. */
+#motionButton{width:auto;min-width:44px;gap:8px;padding-inline:12px;border:1px solid #a5c87c55}
+#motionButton .motion-button-label{display:inline;font-size:11px;line-height:1.3;white-space:nowrap}
+#motionButton[data-paused=true]{color:#d8f4aa;background:#c2ff0010;border-color:#b6e45a8c}
+@media(max-width:699px){#motionButton{gap:6px;padding-inline:9px}#motionButton .motion-button-label{font-size:11px}}
 .portal-node{transition:background-color .3s var(--interaction-ease),border-color .3s var(--interaction-ease),box-shadow .3s var(--interaction-ease)}
 .portal-node .portal-content{transition:translate .28s var(--interaction-ease)}
 .portal-node:hover .portal-content,.portal-node:focus-visible .portal-content{translate:0 -2px}

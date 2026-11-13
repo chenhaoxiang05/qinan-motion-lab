@@ -16,6 +16,7 @@ import { animate, utils, createSpring, createLayout, createTimeline } from 'anim
 import { initApp } from './app.js';
 import { createHomeMotion } from './home-motion.js';
 import { createFontReadiness } from './font-ready.js';
+import { createAmbientBackground } from './ambient-background.js';
 
 // Mount the usable interface first; the 3D engine is a separate lazy chunk.
 let scene, boot, app, homeMotion, disposed=false;
@@ -23,15 +24,24 @@ const islands={};
 const fontReadiness=createFontReadiness();
 document.querySelector('.scene-placeholder')?.classList.remove('is-ready');
 const desired={paused:false,focused:false,portal:null,portalId:null,entrance:1};
+// The environment is a usable layer of its own, never a side effect of WebGL.
+const ambient=createAmbientBackground({host:document.querySelector('.stage-background'),animate,motionEnabled:()=>!desired.paused&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches});
+const trackAmbientPointer=event=>{
+  if(event.pointerType==='touch'||window.innerWidth<700)return;
+  ambient.setPointer(event.clientX/window.innerWidth,event.clientY/window.innerHeight);
+};
+const resetAmbientPointer=()=>ambient.setPointer(.5,.5);
+window.addEventListener('pointermove',trackAmbientPointer,{passive:true});
+document.documentElement.addEventListener('pointerleave',resetAmbientPointer);
 const visual={
-  pause(){desired.paused=true;scene?.pause();boot?.setPaused(true);},
-  resume(){desired.paused=false;scene?.resume();},
-  focus(value){desired.focused=value;scene?.focus(value);},
-  setPortalFocus(value,portalId=value?.portalId??null){desired.portal=value;desired.portalId=portalId;scene?.setPortalFocus?.(value,portalId);},
-  setEntranceProgress(value){desired.entrance=value;const placeholder=document.querySelector('.scene-placeholder');if(placeholder)placeholder.style.visibility=value<=0?'hidden':'';scene?.setEntranceProgress?.(value);},
+  pause(){desired.paused=true;ambient.setPaused(true);scene?.pause();boot?.setPaused(true);},
+  resume(){desired.paused=false;ambient.setPaused(false);scene?.resume();},
+  focus(value){desired.focused=value;ambient.setCovered(value);scene?.focus(value);},
+  setPortalFocus(value,portalId=value?.portalId??null){desired.portal=value;desired.portalId=portalId;ambient.setPortalFocus(portalId);scene?.setPortalFocus?.(value,portalId);},
+  setEntranceProgress(value){desired.entrance=value;ambient.setEntranceProgress(value);const placeholder=document.querySelector('.scene-placeholder');if(placeholder)placeholder.style.visibility=value<=0?'hidden':'';scene?.setEntranceProgress?.(value);},
   pointerPulse(x,y){scene?.pointerPulse?.(x,y);},
   async toggleForm(){await sceneReady;return disposed?'shield':scene.toggleForm();},
-  dispose(){disposed=true;fontReadiness.destroy();homeMotion?.destroy();boot?.destroy();scene?.dispose();}
+  dispose(){disposed=true;window.removeEventListener('pointermove',trackAmbientPointer);document.documentElement.removeEventListener('pointerleave',resetAmbientPointer);ambient.destroy();fontReadiness.destroy();homeMotion?.destroy();boot?.destroy();scene?.dispose();}
 };
 const sceneReady=import('./scene.js').then(({createSanctuary})=>{
   if(disposed)return;
@@ -44,13 +54,11 @@ const sceneReady=import('./scene.js').then(({createSanctuary})=>{
   // Even a failed lazy-chunk download leaves the control usable.
   const placeholder=document.querySelector('.scene-placeholder');
   const slogan=document.createElement('span');slogan.className='placeholder-slogan';slogan.textContent='先核实\n再放心';slogan.hidden=true;placeholder?.append(slogan);
-  const syncFallbackAmbient=()=>document.documentElement.classList.toggle('scene-ambient-paused',desired.paused||desired.focused||document.hidden||desired.entrance<.99);
   document.documentElement.dataset.sceneRenderer='fallback';
-  document.addEventListener('visibilitychange',syncFallbackAmbient);
   let form='shield';
   scene={
-    pause:syncFallbackAmbient,resume:syncFallbackAmbient,focus:syncFallbackAmbient,setEntranceProgress:syncFallbackAmbient,setPortalFocus(){},
-    dispose(){document.removeEventListener('visibilitychange',syncFallbackAmbient);delete document.documentElement.dataset.sceneRenderer;document.documentElement.classList.remove('scene-ambient-paused');slogan.remove();},
+    pause(){},resume(){},focus(){},setEntranceProgress(){},setPortalFocus(){},
+    dispose(){delete document.documentElement.dataset.sceneRenderer;slogan.remove();},
     async toggleForm(){
       form=form==='shield'?'slogan':'shield';
       if(placeholder){
@@ -60,7 +68,6 @@ const sceneReady=import('./scene.js').then(({createSanctuary})=>{
       return form;
     }
   };
-  syncFallbackAmbient();
   return {fallback:true,label:'备用场景已就绪'};
 });
 // The optional React islands and the scene download in parallel. The plain DOM
@@ -68,6 +75,7 @@ const sceneReady=import('./scene.js').then(({createSanctuary})=>{
 const islandsReady=import('./rare-islands.jsx').then(module=>{
   if(disposed)return;
   Object.assign(islands,module);
+  ambient.refreshIslands(islands);
   app?.refreshIslands();
 }).catch(()=>({fallback:true,label:'基础交互已就绪'}));
 let motionPaused=false;

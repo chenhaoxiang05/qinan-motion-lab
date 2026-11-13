@@ -63,33 +63,24 @@ test('both forms keep one anchor scale, preserve phone text size and detach plac
   assert.equal(sculpture.style.top, '130px');
 });
 
-test('fallback ambient animation pauses for preparation, focus, hidden tabs and manual motion preference', t => {
-  const dom = environment(t, '<div id="world"></div>'), scene = fallback(document.querySelector('#world'));
-  const paused = () => document.documentElement.classList.contains('scene-ambient-paused');
-  assert.equal(paused(), false);
-  scene.setEntranceProgress(0); assert.equal(paused(), true);
-  scene.setEntranceProgress(1); assert.equal(paused(), false);
-  scene.focus(true); assert.equal(paused(), true); scene.focus(false); assert.equal(paused(), false);
-  scene.pause(); assert.equal(paused(), true); scene.resume(); assert.equal(paused(), false);
-  Object.defineProperty(document, 'hidden', { configurable: true, value: true });
-  document.dispatchEvent(new dom.window.Event('visibilitychange')); assert.equal(paused(), true);
-  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
-  document.dispatchEvent(new dom.window.Event('visibilitychange')); assert.equal(paused(), false);
-  scene.dispose(); assert.equal(paused(), false);
-});
-
-test('fallback equipment clears the title as its layout and scroll position change', t => {
-  const dom = environment(t, '<div class="intro-copy"></div><div id="world"></div>');
-  let bottom = 460;
-  document.querySelector('.intro-copy').getBoundingClientRect = () => ({ bottom });
+test('fallback placement and lifecycle never control the independent ambient layer', t => {
+  const dom = environment(t, '<div class="stage-background" data-ambient-state="running"></div><div class="intro-copy"></div><div id="world"></div>');
+  const html = document.documentElement, ambient = document.querySelector('.stage-background');
+  html.style.setProperty('--field-title-bottom', '478px');
   const scene = fallback(document.querySelector('#world'));
-  const reserved = () => document.documentElement.style.getPropertyValue('--field-title-bottom');
-  assert.equal(reserved(), '478px');
-  bottom = 620; dom.window.dispatchEvent(new dom.window.Event('resize'));
-  assert.equal(reserved(), '638px', 'wrapped or enlarged text retains its clear area');
-  bottom = 0; dom.window.dispatchEvent(new dom.window.Event('scroll'));
-  assert.equal(reserved(), '18px', 'a title leaving the viewport must not jump back to the default offset');
-  bottom = -80; dom.window.dispatchEvent(new dom.window.Event('scroll'));
-  assert.equal(reserved(), '0px');
-  scene.dispose(); assert.equal(reserved(), '');
+  const independent = () => {
+    assert.equal(ambient.dataset.ambientState, 'running');
+    assert.equal(html.classList.contains('scene-ambient-paused'), false);
+    assert.equal(html.style.getPropertyValue('--field-title-bottom'), '478px');
+  };
+  scene.setEntranceProgress(0); independent(); scene.setEntranceProgress(1); independent();
+  scene.focus(true); independent(); scene.focus(false); independent();
+  scene.pause(); independent(); scene.resume(); independent();
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+  document.dispatchEvent(new dom.window.Event('visibilitychange')); independent();
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  document.dispatchEvent(new dom.window.Event('visibilitychange')); independent();
+  dom.window.dispatchEvent(new dom.window.Event('resize')); independent();
+  dom.window.dispatchEvent(new dom.window.Event('scroll')); independent();
+  scene.dispose(); independent();
 });
