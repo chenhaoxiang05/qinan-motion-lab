@@ -4,7 +4,7 @@ import {JSDOM} from 'jsdom';
 import {readFileSync} from 'node:fs';
 import {createBootSequence} from '../src/boot.js';
 
-const KEY = 'qinan-boot-v9-complete';
+const KEY = 'qinan-boot-v10-complete';
 const glyph = readFileSync(new URL('../src/boot-glyph.svg',import.meta.url),'utf8');
 const flush = async () => {await Promise.resolve();await Promise.resolve();};
 function deferred() {let resolve,reject;const promise = new Promise((yes,no) => {resolve = yes;reject = no;});return {promise,resolve,reject};}
@@ -59,7 +59,7 @@ test('first visit locks its poster at 1.4s, reveals the home underneath, and rel
   assert.deepEqual(Object.keys(anime.timelines[1].items[0].parameters).sort(),['clipPath','duration','ease']);
   t.mock.timers.tick(599);await flush();assert.equal(finished,false);
   t.mock.timers.tick(1);
-  assert.deepEqual(await boot.finished,{reason:'ready'});
+  assert.deepEqual(await boot.finished,{variant:'first',reason:'ready'});
   assert.equal(root.hidden,true);
   assert.equal(w.document.documentElement.dataset.boot,'ready');
   assert.equal(w.document.querySelector('#before').hasAttribute('inert'),false);
@@ -77,7 +77,7 @@ test('returning tabs use a 150ms poster and a 300ms reveal, 450ms in total',asyn
   assert.equal(anime.timelines.length,1,'refresh does not replay the initial color-block positioning');
   assert.equal(anime.timelines[0].items[0].parameters.duration,300);
   t.mock.timers.tick(299);assert.equal(root.hidden,false);
-  t.mock.timers.tick(1);assert.deepEqual(await boot.finished,{reason:'ready'});
+  t.mock.timers.tick(1);assert.deepEqual(await boot.finished,{variant:'return',reason:'ready'});
 });
 
 test('slow real readiness leaves a complete still poster, then opens the window immediately when ready',async t => {
@@ -99,7 +99,7 @@ test('slow real readiness leaves a complete still poster, then opens the window 
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'ready'});
   assert.equal(root.querySelector('[data-boot-milestone="2"]').dataset.state,'fallback');
   assert.equal(root.querySelector('[data-boot-milestone="2"] [data-boot-milestone-label]').textContent,'备用场景已就绪');
-  t.mock.timers.tick(600);assert.deepEqual(await boot.finished,{reason:'ready'});
+  t.mock.timers.tick(600);assert.deepEqual(await boot.finished,{variant:'first',reason:'ready'});
 });
 
 test('out-of-order readiness is reflected accurately and never opens the window early',async t => {
@@ -126,7 +126,7 @@ test('a never-ready scene resolves both lifecycle promises at the four-second de
   t.mock.timers.tick(3999);assert.equal(root.hidden,false);
   t.mock.timers.tick(1);
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'timeout'});
-  assert.deepEqual(await boot.finished,{reason:'timeout'});
+  assert.deepEqual(await boot.finished,{variant:'first',reason:'timeout'});
   assert.equal(root.hidden,true);
   assert.equal(w.document.querySelector('#before').hasAttribute('inert'),false);
   const markup = root.innerHTML;
@@ -138,7 +138,7 @@ test('the four-second cap still applies when readiness arrives during the last 6
   const scene = deferred();const boot = create({ready:scene.promise});
   t.mock.timers.tick(3800);scene.resolve();await flush();
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'ready'});
-  t.mock.timers.tick(200);assert.deepEqual(await boot.finished,{reason:'timeout'});
+  t.mock.timers.tick(200);assert.deepEqual(await boot.finished,{variant:'first',reason:'timeout'});
   assert.equal(root.hidden,true);assert.equal(anime.timelines[1].cancelled,1);
   anime.timelines[1].complete();t.mock.timers.tick(1000);assert.equal(root.hidden,true);
 });
@@ -151,21 +151,21 @@ test('skip and Escape settle both promises immediately and restore focus',async 
   root.dispatchEvent(escape);
   assert.equal(escape.defaultPrevented,true);
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'skip'});
-  assert.deepEqual(await boot.finished,{reason:'skip'});
+  assert.deepEqual(await boot.finished,{variant:'first',reason:'skip'});
   assert.equal(w.document.activeElement,before);assert.equal(listeners.size,0);
   const later = new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true});
   w.document.dispatchEvent(later);assert.equal(later.defaultPrevented,false);
   const repeat = create({ready:new Promise(() => {})});
   root.querySelector('[data-boot-skip]').click();
   assert.deepEqual(await repeat.revealing,{variant:'return',reason:'skip'});
-  assert.deepEqual(await repeat.finished,{reason:'skip'});
+  assert.deepEqual(await repeat.finished,{variant:'return',reason:'skip'});
 });
 
 test('skip during the reveal cancels its timeline and ignores its late completion',async t => {
   const {w,root,create,anime} = setup(t);
   const boot = create();await flush();t.mock.timers.tick(1400);
   const event = await boot.revealing;
-  boot.skip();assert.deepEqual(await boot.finished,{reason:'skip'});
+  boot.skip();assert.deepEqual(await boot.finished,{variant:'first',reason:'skip'});
   const markup = root.innerHTML;
   const clip = root.style.clipPath;
   anime.timelines[1].complete();t.mock.timers.tick(10000);await flush();
@@ -179,7 +179,7 @@ test('reduced motion bypasses both phases without taking focus and observes fail
   const before = w.document.querySelector('#before');before.focus();
   const boot = create({ready:Promise.reject(new Error('optional chunk failed'))});
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'paused'});
-  assert.deepEqual(await boot.finished,{reason:'paused'});
+  assert.deepEqual(await boot.finished,{variant:'first',reason:'paused'});
   assert.equal(root.hidden,true);assert.equal(w.document.activeElement,before);
   assert.equal(before.hasAttribute('inert'),false);assert.equal(anime.timelines.length,0);
 });
@@ -188,18 +188,18 @@ test('manual pause and a live motion preference change settle both phases and de
   const {root,create,listeners} = setup(t);
   const saved = create({motionPaused:true});
   assert.deepEqual(await saved.revealing,{variant:'first',reason:'paused'});
-  assert.deepEqual(await saved.finished,{reason:'paused'});
+  assert.deepEqual(await saved.finished,{variant:'first',reason:'paused'});
   const live = create({ready:new Promise(() => {})});
   live.setPaused(false);assert.equal(root.hidden,false);
   for (const listener of [...listeners]) listener({matches:true});
   assert.deepEqual(await live.revealing,{variant:'return',reason:'paused'});
-  assert.deepEqual(await live.finished,{reason:'paused'});assert.equal(listeners.size,0);
+  assert.deepEqual(await live.finished,{variant:'return',reason:'paused'});assert.equal(listeners.size,0);
 });
 
 test('pause during reveal releases the page without stale animation writes',async t => {
   const {root,create,anime} = setup(t);
   const boot = create();await flush();t.mock.timers.tick(1400);await boot.revealing;
-  boot.setPaused(true);assert.deepEqual(await boot.finished,{reason:'paused'});
+  boot.setPaused(true);assert.deepEqual(await boot.finished,{variant:'first',reason:'paused'});
   const snapshot = root.innerHTML;anime.timelines[1].complete();t.mock.timers.tick(10000);
   assert.equal(root.innerHTML,snapshot);assert.equal(root.hidden,true);
 });
@@ -217,7 +217,7 @@ test('boot traps Tab and restores exact pre-existing inert attributes on destroy
   }
   boot.destroy();boot.destroy();
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'destroyed'});
-  assert.deepEqual(await boot.finished,{reason:'destroyed'});
+  assert.deepEqual(await boot.finished,{variant:'first',reason:'destroyed'});
   assert.equal(before.hasAttribute('inert'),false);assert.equal(old.getAttribute('inert'),'original-value');
   assert.equal(root.hasAttribute('aria-modal'),false);assert.equal(w.document.activeElement,before);
   assert.equal(w.sessionStorage.getItem(KEY),null);assert.equal(listeners.size,0);
@@ -229,29 +229,29 @@ test('blocked storage and animation failures retain the bounded readiness lifecy
   await flush();t.mock.timers.tick(1400);
   assert.deepEqual(await boot.revealing,{variant:'first',reason:'ready'});
   assert.match(root.style.clipPath,/polygon\(evenodd/);
-  t.mock.timers.tick(600);assert.deepEqual(await boot.finished,{reason:'ready'});
+  t.mock.timers.tick(600);assert.deepEqual(await boot.finished,{variant:'first',reason:'ready'});
   assert.equal(root.hidden,true);
 });
 
 test('missing markup and an expired download failsafe resolve both promises immediately',async t => {
   const missing = createBootSequence({root:null,ready:Promise.reject(new Error('late chunk'))});
   assert.deepEqual(await missing.revealing,{variant:'first',reason:'ready'});
-  assert.deepEqual(await missing.finished,{reason:'ready'});
+  assert.deepEqual(await missing.finished,{variant:'first',reason:'ready'});
   const {w,root,create} = setup(t);w.__qinanBootExpired = true;
   const late = create({ready:new Promise(() => {})});
   assert.deepEqual(await late.revealing,{variant:'first',reason:'timeout'});
-  assert.deepEqual(await late.finished,{reason:'timeout'});assert.equal(root.hidden,true);
+  assert.deepEqual(await late.finished,{variant:'first',reason:'timeout'});assert.equal(root.hidden,true);
 });
 
-test('the module clears the inline download failsafe and v8 history cannot suppress the new poster',async t => {
+test('the module clears the inline download failsafe and v9 history cannot suppress the new poster',async t => {
   const {w,root,create} = setup(t);
   let inlineFired = false;w.__qinanBootFailSafe = setTimeout(() => {inlineFired = true;},4500);
-  w.sessionStorage.setItem('qinan-boot-v8-complete','true');
+  w.sessionStorage.setItem('qinan-boot-v9-complete','true');
   const boot = create();await flush();
   t.mock.timers.tick(450);assert.equal(root.hidden,false);assert.equal(root.dataset.variant,'first');
   t.mock.timers.tick(950);await boot.revealing;t.mock.timers.tick(600);await boot.finished;
   t.mock.timers.tick(3000);assert.equal(inlineFired,false);
-  assert.equal(w.sessionStorage.getItem('qinan-boot-v8-complete'),'true');
+  assert.equal(w.sessionStorage.getItem('qinan-boot-v9-complete'),'true');
 });
 
 test('published poster keeps intact Chinese dominant and uses no glyph variants or fetched imagery',() => {

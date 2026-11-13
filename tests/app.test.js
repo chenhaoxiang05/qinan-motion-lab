@@ -60,9 +60,9 @@ test('the sculpture control prevents duplicate morphs and updates its label only
   const {$}=setup(t,{visual:{toggleForm(){calls++;return morph.promise;}}});
   const control=$('#scatterButton');control.click();control.click();
   assert.equal(calls,1);assert.equal(control.disabled,true);assert.equal(control.getAttribute('aria-busy'),'true');
-  assert.match(control.textContent,/展开安心标语/);
+  assert.match(control.textContent,/展开安心宣言/);
   morph.resolve('slogan');await tick();
-  assert.equal(control.disabled,false);assert.equal(control.getAttribute('aria-busy'),'false');assert.match(control.textContent,/合拢为安印/);
+  assert.equal(control.disabled,false);assert.equal(control.getAttribute('aria-busy'),'false');assert.match(control.textContent,/合拢安印/);
 });
 
 test('image selection, invalid formats, replacement and removal remain safe and revoke previews',async t=>{

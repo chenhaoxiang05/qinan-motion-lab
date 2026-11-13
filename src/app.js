@@ -622,7 +622,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,islands=
   $('#scatterButton').onclick=async()=>{
     const button=$('#scatterButton');button.disabled=true;
     button.setAttribute('aria-busy','true');
-    try{const form=await visual.toggleForm();button.querySelectorAll('span')[1].textContent=form==='slogan'?'合拢为安印':'展开安心标语';}
+    try{const form=await visual.toggleForm();button.querySelectorAll('span')[1].textContent=form==='slogan'?'合拢安印':'展开安心宣言';}
     finally{button.disabled=false;button.setAttribute('aria-busy','false');}
   };
 

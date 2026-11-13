@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { animate } from 'animejs';
-import { buildSealGeometry, createPanelFaceGeometry, sampleSealPose, SEAL_BOUNDS } from './scene-geometry.js';
+import { buildSealGeometry, sampleSealPose, SEAL_BOUNDS } from './scene-geometry.js';
 import { createSealArtwork, sealFallbackSvg } from './scene-artwork.js';
 import { createSealMotion } from './scene-motion.js';
 import { screenVertex, fuiFragment } from './scene-shaders.js';
@@ -28,7 +28,7 @@ function observePlacement(callback) {
 }
 
 function createFallback(host, initialForm = 'shield') {
-  let form = initialForm, paused = false, disposed = false, entrance = 1;
+  let form = initialForm, paused = false, focused = false, disposed = false, entrance = 1;
   const root = document.createElement('div'); root.className = 'scene-fallback';
   root.style.cssText = 'position:absolute;inset:0;pointer-events:none';
   const sculpture = document.createElement('div');
@@ -37,24 +37,27 @@ function createFallback(host, initialForm = 'shield') {
   function place() {
     if (disposed) return;
     const placement = sculpturePlacement();
-    const width = form === 'shield' ? 2.18 : 3.40;
     sculpture.style.left = `${placement.x}px`; sculpture.style.top = `${placement.y}px`;
-    sculpture.style.width = `${placement.size * width / SEAL_BOUNDS.width}px`;
+    sculpture.style.width = `${placement.size * SEAL_BOUNDS.width / Math.max(SEAL_BOUNDS.width, SEAL_BOUNDS.height)}px`;
     sculpture.style.transform = `translate(-50%,-50%) scale(${.9 + entrance * .1})`;
+    sculpture.style.visibility = entrance > 0 ? 'visible' : 'hidden';
+    sculpture.style.opacity = String(entrance);
+    document.documentElement.classList.toggle('scene-ambient-paused', paused || focused || document.hidden || entrance < .99);
   }
   function render() {
     sculpture.className = form === 'shield' ? 'scene-fallback-shield' : 'scene-fallback-slogan';
     sculpture.innerHTML = sealFallbackSvg(form); place();
   }
-  host.append(root); host.classList.add('webgl-ready');
+  host.append(root); host.classList.add('webgl-ready'); document.documentElement.dataset.sceneRenderer = 'fallback';
+  document.addEventListener('visibilitychange', place);
   window.addEventListener('resize', place); const detachPlacement = observePlacement(place); render();
   return {
-    pause() { paused = true; entrance = 1; place(); }, resume() { paused = false; },
-    focus(value) { root.style.opacity = value ? '.36' : '1'; },
-    setEntranceProgress(value) { entrance = paused ? 1 : clamp(Number.isFinite(value) ? value : 1, 0, 1); place(); },
+    pause() { paused = true; place(); }, resume() { paused = false; place(); },
+    focus(value) { focused = Boolean(value); root.style.opacity = focused ? '.36' : '1'; place(); },
+    setEntranceProgress(value) { entrance = clamp(Number.isFinite(value) ? value : 1, 0, 1); place(); },
     setPortalFocus() {}, pointerPulse() {},
     async toggleForm() { if (!disposed) { form = form === 'shield' ? 'slogan' : 'shield'; render(); } return form; },
-    dispose() { if (disposed) return; disposed = true; detachPlacement(); window.removeEventListener('resize', place); root.remove(); host.classList.remove('webgl-ready'); }
+    dispose() { if (disposed) return; disposed = true; detachPlacement(); document.removeEventListener('visibilitychange', place); window.removeEventListener('resize', place); root.remove(); host.classList.remove('webgl-ready'); delete document.documentElement.dataset.sceneRenderer; document.documentElement.classList.remove('scene-ambient-paused'); }
   };
 }
 
@@ -70,7 +73,7 @@ function createStudioEnvironment(renderer) {
   finally { studio.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); }); generator.dispose(); }
 }
 
-/** Six physical, two-sided plaques. All movement is a reversible deterministic path. */
+/** An uninterrupted impression inside an articulated frame, with two complete slogan lines. */
 export function createSanctuary(host) {
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ alpha: false, antialias: true, powerPreference: 'high-performance' }); }
@@ -84,9 +87,10 @@ export function createSanctuary(host) {
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(38, 1, .1, 30);
   camera.position.z = 8.8;
   const sculpture = new THREE.Group(); scene.add(sculpture);
-  const plates = [], corners = [];
-  let backgroundScene, backgroundUniforms, screenCamera, motion, fallback;
-  let disposed = false, raf = 0, layoutRaf = 0, elapsed = 0, last = 0, pulseAt = -100, portalAt = -100;
+  const core = new THREE.Group(), corners = [], sloganLines = []; sculpture.add(core);
+  let backgroundScene, backgroundUniforms, screenCamera, motion, fallback, artwork, trace;
+  let disposed = false, raf = 0, layoutRaf = 0, elapsed = 0, backgroundElapsed = 0, ambientElapsed = 0, last = 0, pulseAt = -100, portalAt = -100;
+  let traceProgress = null, lastTraceAt = -Infinity;
   let paused = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false, focused = false;
   let entrance = 1, centerY = 0, baseScale = 1, yaw = 0, pitch = 0;
   let dragging = false, dragPointer = null, previousDrag = null, previousPointer = null, pointerStamp = 0;
@@ -97,8 +101,9 @@ export function createSanctuary(host) {
   function cleanupResources() {
     stop(); cancelAnimationFrame(layoutRaf); layoutRaf = 0;
     resources.forEach(resource => resource.dispose()); resources.clear();
-    sculpture.clear(); scene.clear(); backgroundScene?.clear(); plates.length = 0; corners.length = 0;
+    sculpture.clear(); scene.clear(); backgroundScene?.clear(); corners.length = 0; sloganLines.length = 0;
     renderer.dispose(); canvas.remove(); host.classList.remove('webgl-ready');
+    delete document.documentElement.dataset.sceneRenderer; document.documentElement.classList.remove('scene-ambient-paused');
   }
   try {
     const environment = own(createStudioEnvironment(renderer)); scene.environment = environment.texture; scene.environmentIntensity = .65;
@@ -106,18 +111,18 @@ export function createSanctuary(host) {
     const key = new THREE.DirectionalLight(0xfffdf0, 2.1); key.position.set(-3, 4, 5); scene.add(key);
     const fill = new THREE.DirectionalLight(0xdce7c8, .7); fill.position.set(4, -.5, 3); scene.add(fill);
     const geometry = buildSealGeometry(); Object.values(geometry).forEach(own);
-    const artwork = createSealArtwork({ mobile: mobileViewport() }); Object.values(artwork).forEach(own);
+    artwork = own(createSealArtwork({ mobile: mobileViewport() }));
     const edge = own(new THREE.MeshStandardMaterial({ color: 0x373e2f, metalness: .55, roughness: .56 }));
     const front = own(new THREE.MeshStandardMaterial({ color: 0xffffff, map: artwork.frontTexture, metalness: .05, roughness: .66 }));
-    const back = own(new THREE.MeshStandardMaterial({ color: 0xffffff, map: artwork.backTexture, metalness: .08, roughness: .61 }));
     const registration = own(new THREE.MeshStandardMaterial({ color: 0xc2ff00, metalness: .1, roughness: .6, emissive: 0x182000, emissiveIntensity: .3 }));
-    for (let id = 0; id < 6; id++) {
-      const plate = new THREE.Group();
-      plate.add(new THREE.Mesh(geometry.panelBodyGeometry, edge),
-        new THREE.Mesh(own(createPanelFaceGeometry(id, 'front')), front),
-        new THREE.Mesh(own(createPanelFaceGeometry(id, 'back')), back));
-      sculpture.add(plate); plates.push(plate);
-    }
+    trace = new THREE.Mesh(geometry.traceGeometry, own(new THREE.MeshBasicMaterial({ map: artwork.traceTexture, transparent: true, depthWrite: false, toneMapped: false })));
+    trace.visible = false;
+    core.add(new THREE.Mesh(geometry.coreBodyGeometry, edge), new THREE.Mesh(geometry.coreFaceGeometry, front), trace);
+    artwork.sloganTextures.forEach(texture => {
+      const material = own(new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+      const line = new THREE.Mesh(geometry.sloganGeometry, material); line.visible = false;
+      sculpture.add(line); sloganLines.push(line);
+    });
     for (let i = 0; i < 4; i++) {
       const corner = new THREE.Mesh(geometry.cornerGeometry, registration); sculpture.add(corner); corners.push(corner);
     }
@@ -126,7 +131,7 @@ export function createSanctuary(host) {
       uResolution: { value: new THREE.Vector2() }, uPointer: { value: pointer }, uPointerActivity: { value: 0 },
       uFieldSize: { value: new THREE.Vector2(240, 200) }, uFocus: { value: focusCurrent },
       uPulseOrigin: { value: new THREE.Vector2(.5, .5) }, uCenter: { value: new THREE.Vector2(.5, .47) },
-      uTime: { value: 0 }, uPulseAge: { value: -1 }, uDim: { value: 0 },
+      uTime: { value: 0 }, uAmbientTime: { value: 0 }, uInteractionTime: { value: 0 }, uPulseAge: { value: -1 }, uDim: { value: 0 },
       uEntranceProgress: { value: 1 }, uTitleRect: { value: new THREE.Vector4(-10000, -10000, 0, 0) },
       uPortalAnchors: { value: PORTAL_IDS.map(() => new THREE.Vector2(-10000, -10000)) },
       uActivePortal: { value: -1 }, uPortalAge: { value: 100 }, uMobile: { value: 0 }
@@ -140,16 +145,26 @@ export function createSanctuary(host) {
 
   function updatePose(progress) {
     const pose = sampleSealPose(progress);
-    pose.panels.forEach(panel => { plates[panel.id].position.fromArray(panel.position); plates[panel.id].rotation.y = panel.rotationY; });
+    core.position.fromArray(pose.core.position); core.scale.setScalar(pose.core.scale);
+    pose.lines.forEach((line, index) => { sloganLines[index].position.fromArray(line.position); sloganLines[index].material.opacity = line.opacity; sloganLines[index].visible = line.opacity > 0; });
+    traceProgress = pose.traceProgress;
+    if (traceProgress === null) { artwork.clearTrace(); trace.visible = false; lastTraceAt = -Infinity; }
     pose.corners.forEach((corner, index) => { corners[index].position.fromArray(corner.position); corners[index].rotation.z = corner.rotationZ; });
     if (paused || focused) draw();
   }
   motion = createSealMotion({ animate, onUpdate: updatePose,
     immediate: () => paused || focused || document.hidden,
-    duration: () => mobileViewport() ? 800 : 1150 });
+    duration: () => mobileViewport() ? 900 : 1350 });
 
+  function syncAmbientState() {
+    document.documentElement.classList.toggle('scene-ambient-paused', paused || focused || document.hidden || entrance < .99);
+  }
   function draw(delta = 0) {
     if (disposed || fallback || document.hidden) return;
+    sculpture.visible = entrance > 0;
+    if (traceProgress !== null && elapsed - lastTraceAt >= 1 / (mobileViewport() ? 20 : 30)) {
+      artwork.updateTrace(traceProgress); trace.visible = true; lastTraceAt = elapsed;
+    }
     focusCurrent.lerp(focusTarget, delta > 0 ? 1 - Math.exp(-delta * 5.5) : 1);
     const closedWeight = 1 - (motion?.progress ?? 0), reveal = 1 - (1 - entrance) ** 3;
     sculpture.rotation.set((pitch + .025 - focusCurrent.y * .025) * closedWeight,
@@ -158,7 +173,7 @@ export function createSanctuary(host) {
     sculpture.scale.setScalar(baseScale * (.9 + reveal * .1));
     if (delta > 0) pointerStamp *= Math.exp(-delta * 6);
     backgroundUniforms.uPointerActivity.value = pointerStamp;
-    backgroundUniforms.uTime.value = elapsed; backgroundUniforms.uPulseAge.value = pulseAt < 0 ? -1 : elapsed - pulseAt;
+    backgroundUniforms.uTime.value = backgroundElapsed; backgroundUniforms.uAmbientTime.value = ambientElapsed; backgroundUniforms.uInteractionTime.value = elapsed; backgroundUniforms.uPulseAge.value = pulseAt < 0 ? -1 : elapsed - pulseAt;
     backgroundUniforms.uPortalAge.value = elapsed - portalAt; backgroundUniforms.uDim.value = focused ? 1 : 0;
     backgroundUniforms.uEntranceProgress.value = entrance;
     renderer.setRenderTarget(null); renderer.clear(); renderer.render(backgroundScene, screenCamera);
@@ -168,6 +183,7 @@ export function createSanctuary(host) {
     raf = 0;
     if (disposed || fallback || paused || focused || document.hidden) return;
     const delta = Math.min((now - (last || now)) / 1000, .04); last = now; elapsed += delta;
+    if (entrance >= .99) { backgroundElapsed += delta; if (backgroundUniforms.uActivePortal.value < 0) ambientElapsed += delta; }
     draw(delta); raf = requestAnimationFrame(loop);
   }
   function run() {
@@ -230,6 +246,7 @@ export function createSanctuary(host) {
   }
   function pointerUp(event) { if (event.pointerId === dragPointer) releaseDrag(); }
   function visibility() {
+    syncAmbientState();
     if (document.hidden) { motion.settle(); releaseDrag(); stop(); cancelAnimationFrame(layoutRaf); layoutRaf = 0; }
     else { measureLayout(); run(); }
   }
@@ -256,20 +273,20 @@ export function createSanctuary(host) {
   window.addEventListener('pointercancel', pointerUp); window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', visibility); canvas.addEventListener('pointerdown', pointerDown);
   canvas.addEventListener('webglcontextlost', contextLost);
-  updatePose(0); resize(); host.classList.add('webgl-ready'); run();
+  updatePose(0); resize(); host.classList.add('webgl-ready'); document.documentElement.dataset.sceneRenderer = 'webgl'; syncAmbientState(); run();
 
   return {
-    pause() { if (disposed) return; if (fallback) return fallback.pause(); paused = true; entrance = 1; motion.settle(); releaseDrag(); stop(); draw(); },
-    resume() { if (disposed) return; if (fallback) return fallback.resume(); paused = false; draw(); run(); },
+    pause() { if (disposed) return; if (fallback) return fallback.pause(); paused = true; motion.settle(); releaseDrag(); stop(); syncAmbientState(); draw(); },
+    resume() { if (disposed) return; if (fallback) return fallback.resume(); paused = false; syncAmbientState(); draw(); run(); },
     focus(value) {
       if (disposed) return; if (fallback) return fallback.focus(value);
-      focused = Boolean(value); motion.settle(); releaseDrag();
+      focused = Boolean(value); motion.settle(); releaseDrag(); syncAmbientState();
       if (focused) stop(); else run(); draw();
     },
     setEntranceProgress(value) {
       if (disposed) return; if (fallback) return fallback.setEntranceProgress(value);
-      entrance = paused ? 1 : clamp(Number.isFinite(value) ? value : 1, 0, 1);
-      if (!raf || paused || focused) draw();
+      entrance = clamp(Number.isFinite(value) ? value : 1, 0, 1);
+      sculpture.visible = entrance > 0; syncAmbientState(); draw();
     },
     setPortalFocus(direction, portalId = null) {
       if (disposed) return; if (fallback) return fallback.setPortalFocus(direction, portalId);

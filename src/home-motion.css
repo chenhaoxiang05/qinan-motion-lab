@@ -1,12 +1,11 @@
-/* Stable typography is the default; the finite entrance owns temporary masks. */
+/* The normal page is visible; only the bounded controller owns hidden states. */
 .home-line{position:relative;display:block;width:fit-content;max-width:100%;isolation:isolate}
 .home-line-original{display:block;padding-bottom:.12em;margin-bottom:-.12em}
-.home-line-slice{position:absolute;inset:0 auto auto 0;display:block;white-space:nowrap;padding-bottom:.12em;clip-path:inset(46% 0 48% 0);opacity:0;color:#c2ff00;pointer-events:none;user-select:none}
-.home-line-slice .title-accent{color:inherit}.home-line-slice .home-underline{display:none}
 .home-line-original .title-period{display:inline-block}
-.intro-copy .title-accent::after{display:none}
-.home-underline{position:absolute;left:3px;right:4px;bottom:-7px;display:block;height:6px;background:var(--lime);transform-origin:left center;pointer-events:none}
-.portal-arrival-marker{position:absolute;left:-1px;top:-1px;width:23px;height:17px;border-top:3px solid var(--lime);border-left:2px solid var(--lime);opacity:0;pointer-events:none}
+.intro-copy .title-accent{display:inline-block;position:relative;color:inherit}
+.intro-copy .title-accent::after,.home-underline{display:none!important}
+.home-word-scan{position:absolute;inset:0;display:block;white-space:nowrap;font:inherit;letter-spacing:inherit;color:#d1ff71;clip-path:polygon(-40% 0,-24% 0,-44% 100%,-60% 100%);pointer-events:none;user-select:none}
+.home-arriving .portal-node{transition:none}
 .portal-node .portal-content>strong{width:fit-content;text-decoration-color:transparent;text-underline-offset:5px;text-decoration-thickness:1px;transition:text-decoration-color .2s}
 .portal-node:hover .portal-content>strong,.portal-node:focus-visible .portal-content>strong{text-decoration-line:underline;text-decoration-color:currentColor}
 .portal-node .node-arrow,.core-control>b,.header-start>span{transition:transform .2s ease-out}
@@ -14,8 +13,10 @@
 .core-control:hover>b,.core-control:focus-visible>b,.header-start:hover>span{transform:translate(3px,-3px)}
 .header-start{display:flex;align-items:center;gap:21px;min-height:44px;padding:10px 16px;border:1px solid #c2ff0080;background:#c2ff00;color:#10150a;border-radius:0;font-size:12px;font-weight:600;transition:background-color .2s}
 .header-start:hover{background:#ddff75}.header-start>span{font-size:19px;font-weight:400}
-.core-tag{font-size:11px;letter-spacing:.04em}.core-tag::before{content:'QN—06';display:inline-block;margin-right:10px;padding:3px 5px;background:#2231c9;color:#ebedff;font:10px/1 var(--mono)}
+.core-tag{font-size:11px;letter-spacing:.04em}.core-tag::before{content:'QN—AN';display:inline-block;margin-right:10px;padding:3px 5px;background:#2231c9;color:#ebedff;font:10px/1 var(--mono)}
 .scene-placeholder{clip-path:polygon(0 0,91% 0,100% 8%,100% 100%,9% 100%,0 92%);border-radius:0;background:#eceee4;color:#10150d;box-shadow:none}
-.scene-placeholder.is-slogan{background:#13190f;color:#f1f3e8;clip-path:none;white-space:pre-line;font-size:32px;border:1px solid #c2ff0045}
-@media(max-width:699px){.home-underline{height:4px;bottom:-5px}.header-start{padding:9px 11px;gap:10px;font-size:11px}.header-start>span{font-size:16px}.core-tag{font-size:11px}.scene-placeholder.is-slogan{font-size:28px}}
-@media(prefers-reduced-motion:reduce){.home-line-slice,.portal-arrival-marker{display:none}.portal-node .node-arrow,.core-control>b,.header-start>span{transition:none}}
+.scene-placeholder.is-slogan{background:transparent;color:#f1f3e8;clip-path:none;white-space:pre-line;font-size:32px;border:0;gap:14px}
+.scene-placeholder.is-slogan>span:first-child{display:grid;place-items:center;width:92px;height:128px;background:#eceee4;color:#10150d;font-size:54px}
+.placeholder-slogan{line-height:1.5;letter-spacing:.06em;text-align:center}
+@media(max-width:699px){.header-start{padding:9px 11px;gap:10px;font-size:11px}.header-start>span{font-size:16px}.core-tag{font-size:11px}.scene-placeholder.is-slogan{font-size:28px}}
+@media(prefers-reduced-motion:reduce){.home-word-scan{display:none}.portal-node .node-arrow,.core-control>b,.header-start>span{transition:none}}

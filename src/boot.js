@@ -1,4 +1,4 @@
-const SESSION_KEY = 'qinan-boot-v9-complete';
+const SESSION_KEY = 'qinan-boot-v10-complete';
 const FIRST_LOCK_MS = 1400;
 const RETURN_LOCK_MS = 150;
 const FIRST_REVEAL_MS = 600;
@@ -11,7 +11,7 @@ const OPEN_WINDOW = 'polygon(evenodd, 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%,
  * A fixed, readable signal poster, followed by a window onto the homepage.
  * The real readiness labels are independent of the short graphic sequence:
  * slow resources leave a complete, still poster until ready or the deadline.
- * `revealing` starts the overlapping home entrance; `finished` releases input.
+ * `revealing` opens the background; `finished` releases input and starts home.
  */
 export function createBootSequence({
   root = globalThis.document?.querySelector('#boot'),
@@ -127,7 +127,7 @@ export function createBootSequence({
     // Skip/fallback callers receive both promises in the same turn. If a
     // normal reveal already began, its original event remains immutable.
     deliverReveal(reason);
-    resolveFinished({reason});
+    resolveFinished({variant,reason});
   }
 
   function skip() {finish('skip');}
@@ -154,7 +154,7 @@ export function createBootSequence({
     const token = revision;
     const duration = returning ? RETURN_REVEAL_MS : FIRST_REVEAL_MS;
     const onComplete = () => {if (!complete && token === revision) finish('ready');};
-    // The underlying page can animate now, but remains inert until finished.
+    // Reveal the equipment field; the homepage starts after finished releases input.
     deliverReveal('ready');
     revealTimer = setTimeout(onComplete,duration);
     if (typeof createTimeline !== 'function') {root.style.clipPath = OPEN_WINDOW;return;}
