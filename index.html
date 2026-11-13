@@ -3,32 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#111712">
+  <meta name="theme-color" content="#090b0e">
   <meta name="description" content="亲安 QINAN · 先核实，再放心。探索属于你和家人的安心空间。">
   <title>亲安 QINAN · 让安心发生</title>
-  <style>html,body{background:#111712;color:#eef1df}</style>
+  <style>html,body{background:#090b0e;color:#e9edef}</style>
 </head>
 <body>
   <a href="#portals" class="skip-link">跳到功能入口</a>
-  <div class="stage-background" aria-hidden="true"><div class="ambient-halo"></div><div class="floor-grid"></div><div class="grain"></div></div>
-  <div id="world" aria-hidden="true"><div class="fallback-orb"><span></span><span></span><span></span></div></div>
+  <div class="stage-background" aria-hidden="true"><div class="grain"></div></div>
+  <div id="world" aria-hidden="true"><div class="scene-placeholder"><span>安</span></div></div>
   <header class="site-header">
     <a class="brand" href="#home" aria-label="亲安首页"><span class="brand-mark" data-icon="shield"></span><strong>亲安<span>QINAN®</span></strong><span class="brand-divider"></span><small>先核实，再放心</small></a>
     <div class="header-actions"><button id="modeButton" class="mode-button"><i></i><span id="modeLabel">交互演示</span><span class="mode-arrow">↗</span></button><button id="settings" class="icon-button" aria-label="设置" title="设置" data-icon="settings"></button></div>
   </header>
   <main id="home" class="home-stage">
-    <div class="intro-copy"><div class="edition"><span class="live-dot"></span> A LITTLE CHECK. A LOT OF PEACE.<span class="edition-no">/ 02</span></div><h1><span>让</span><em>安心</em><span>，发生。</span></h1><p>科技多看一步，你在意的人，少一点担心。</p></div>
+    <div class="intro-copy"><div class="edition"><span class="live-dot"></span> A LITTLE CHECK. A LOT OF PEACE.<span class="edition-no">/ 04</span></div><h1><span>让</span><em>安心</em><span>，发生。</span></h1><p>科技多看一步，你在意的人，少一点担心。</p></div>
     <div class="scene-details" aria-hidden="true"><span>CONNECTION<br><b>HUMAN ↔ HUMAN</b></span><span>QINAN / SANCTUARY<br><b>CONNECTED BY CARE.</b></span></div>
     <nav id="portals" class="portal-field" aria-label="选择一个功能">
-      <a class="portal-node node-check" style="transform:rotateZ(-5deg)" href="#check" data-portal="check"><span class="node-top"><span class="node-icon" data-icon="scan"></span><small>01 / VERIFY</small><span class="node-arrow">↗</span></span><strong>检查一份材料</strong><span class="node-desc">声音 · 视频 · 照片 · 截图</span><span class="node-decoration mini-signal" aria-hidden="true"></span><span class="node-foot"><i></i> 把疑问交给亲安</span></a>
-      <a class="portal-node node-contacts" style="transform:rotateZ(6deg)" href="#contacts" data-portal="contacts"><span class="node-top"><span class="node-icon" data-icon="heart"></span><small>02 / CONNECT</small><span class="node-arrow">↗</span></span><strong>听见家人的声音</strong><span class="node-desc">一个电话，让担心落地</span><span class="node-decoration connection-dots" aria-hidden="true"><i>你</i><b></b><i>家</i></span><span class="node-foot">YOUR CIRCLE OF TRUST</span></a>
-      <a class="portal-node node-practice" style="transform:rotateZ(4deg)" href="#practice" data-portal="practice"><span class="node-top"><span class="node-icon" data-icon="spark"></span><small>03 / EXPLORE</small><span class="node-arrow">↗</span></span><strong>练一点识别力</strong><span class="node-desc">让每一种伪装，少一点机会</span><span class="node-decoration mini-stars" aria-hidden="true">✳ <i>✧</i></span><span class="node-foot">6 个情景，练就一份从容</span></a>
-      <a class="portal-node node-history" style="transform:rotateZ(-5deg)" href="#history" data-portal="history"><span class="node-top"><span class="node-icon" data-icon="clock"></span><small>04 / REVISIT</small><span class="node-arrow">↗</span></span><strong>回看安心的足迹</strong><span class="node-desc">每一次核实，都有迹可循</span><span class="node-decoration mini-stack" aria-hidden="true"><i></i><i></i><i></i></span><span class="node-foot" id="historyHint">YOUR MOMENTS OF CLARITY</span></a>
+      <a class="portal-node node-check" style="transform:rotateZ(-5deg)" href="#check" data-portal="check"><div class="portal-content"><span class="node-top"><span class="node-icon" data-icon="scan"></span><small>01 / VERIFY</small><span class="node-arrow">↗</span></span><strong>检查一份材料</strong><span class="node-desc">声音 · 视频 · 照片 · 截图</span><span class="node-decoration mini-signal" aria-hidden="true"></span><span class="node-foot"><i></i> 把疑问交给亲安</span></div></a>
+      <a class="portal-node node-contacts" style="transform:rotateZ(6deg)" href="#contacts" data-portal="contacts"><div class="portal-content"><span class="node-top"><span class="node-icon" data-icon="heart"></span><small>02 / CONNECT</small><span class="node-arrow">↗</span></span><strong>听见家人的声音</strong><span class="node-desc">一个电话，让担心落地</span><span class="node-decoration connection-dots" aria-hidden="true"><i>你</i><b></b><i>家</i></span><span class="node-foot">YOUR CIRCLE OF TRUST</span></div></a>
+      <a class="portal-node node-practice" style="transform:rotateZ(4deg)" href="#practice" data-portal="practice"><div class="portal-content"><span class="node-top"><span class="node-icon" data-icon="spark"></span><small>03 / EXPLORE</small><span class="node-arrow">↗</span></span><strong>练一点识别力</strong><span class="node-desc">让每一种伪装，少一点机会</span><span class="node-decoration mini-stars" aria-hidden="true">✳ <i>✧</i></span><span class="node-foot">6 个情景，练就一份从容</span></div></a>
+      <a class="portal-node node-history" style="transform:rotateZ(-5deg)" href="#history" data-portal="history"><div class="portal-content"><span class="node-top"><span class="node-icon" data-icon="clock"></span><small>04 / REVISIT</small><span class="node-arrow">↗</span></span><strong>回看安心的足迹</strong><span class="node-desc">每一次核实，都有迹可循</span><span class="node-decoration mini-stack" aria-hidden="true"><i></i><i></i><i></i></span><span class="node-foot" id="historyHint">YOUR MOMENTS OF CLARITY</span></div></a>
     </nav>
-    <div class="core-controller"><span class="core-tag"><i></i> 安心引力场</span><button id="scatterButton" class="core-control" aria-label="盾牌与安心标语切换"><span data-icon="spark"></span><span>化作安心标语</span><b>↻</b></button><span class="drag-hint">拖动核心，换个角度看世界</span></div>
+    <div class="core-controller"><span class="core-tag"><i></i> 安心引力场</span><button id="scatterButton" class="core-control" aria-label="盾牌与安心标语切换"><span data-icon="spark"></span><span>化作安心标语</span><b>↻</b></button><span class="drag-hint">移动光线 · 拖动盾牌 · 看见另一面</span></div>
     <div class="home-bottom"><button id="watchDemo" class="demo-link"><span class="play-orb" data-icon="play"></span><span>第一次来？<b>体验一次核验</b></span><span>↗</span></button><div class="bottom-quote">“真正的关心，经得起一次确认。”</div><div class="motion-tools"><span id="motionState">MOTION ON</span><button id="motionButton" class="icon-button" aria-label="暂停动态效果" data-icon="pause"></button><button id="helpButton" class="icon-button" aria-label="使用帮助" data-icon="help"></button></div></div>
   </main>
   <footer class="site-footer"><span>© QINAN <i>·</i> TECHNOLOGY WITH A HUMAN HEART.</span><span>检测提供线索，身份仍需独立核实</span></footer>
+  <div id="workspaceBackdrop" aria-hidden="true"></div>
   <dialog id="workspace" class="workspace" aria-labelledby="workspaceTitle"><div class="workspace-surface portal-surface"><header class="workspace-header"><span id="workspaceTitle">检查材料</span><button id="closeWorkspace" class="icon-button" aria-label="返回主页"></button></header><div id="workspaceBody" class="workspace-body"></div><footer class="workspace-footer"><span>QINAN / <span id="sectionNumber">01</span></span><span>先核实，再放心。<span class="small-star">✳</span></span></footer></div></dialog>
   <dialog id="modal" class="modal" aria-labelledby="modalTitle"><button id="closeModal" class="icon-button modal-close" aria-label="关闭弹窗" data-icon="close"></button><div id="modalBody"></div></dialog>
   <div id="toast" class="toast" popover="manual" role="status" aria-live="polite"></div>

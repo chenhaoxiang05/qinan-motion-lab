@@ -1,5 +1,6 @@
 import { icon } from './icons.js';
 import { quiz } from './quiz.js';
+import { createWorkspaceTransitions } from './transitions.js';
 
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fileTypes = {
@@ -41,11 +42,16 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   let page='home', routeRevision=0, viewController=null, healthController=null;
   let type='audio',selectedFile=null,previewURL=null,selectionRevision=0,validating=false,validationCleanup=null,fileError='';
   let activeTask=null, currentReport=null, currentQuiz=0, answer=null, correctCount=0, mistakes=[];
-  let lastPortal=null, windowAnimation=null, toastTimer=null, quizLayout=null;
-  const modalLayout=createLayout?.(workspace,{children:['.portal-surface'],duration:600,ease:'out(3)',properties:['borderRadius']});
-  $$('.portal-node').forEach(node=>{node.classList.add('portal-surface');node.dataset.layoutId='portal-'+node.dataset.portal;});
-  const activeRequests=new Set(), ambientAnimations=[], pointerDisposers=[];
+  let lastPortal=null, toastTimer=null, quizLayout=null, quizExit=null;
+  const activeRequests=new Set(), ambientAnimations=[], entranceAnimations=[], pointerDisposers=[];
   const motionEnabled=()=>!paused&&!mediaQuery.matches;
+  const transitions=createWorkspaceTransitions({
+    dialog:workspace,surface:$('.workspace-surface'),backdrop:$('#workspaceBackdrop'),portals:$$('.portal-node'),
+    animate,createLayout,motionEnabled,
+    onBusy(){pauseAmbient();finishQuizExit();visual.setPortalFocus?.(null);visual.focus(true);},
+    onHome(){visual.focus(false);resumeAmbient();},
+    onClosed(){disposeView();body.innerHTML='';},
+  });
   const e=escapeHTML;
   const heading=(label,title,desc)=>`<div class="page-heading"><span class="eyebrow">${label}</span><h1>${title}</h1><p>${desc}</p></div>`;
   const wave=()=>`<div class="waveform" aria-hidden="true">${Array.from({length:25},(_,i)=>`<span style="height:${8+Math.sin(i*2.3)**2*33}px;animation-delay:${-i*.11}s"></span>`).join('')}</div>`;
@@ -106,41 +112,30 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   function go(next){
     if(location.hash.slice(1)===next)route();else location.hash=next;
   }
-  function disposeView(){quizLayout?.revert();quizLayout=null;if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
+  function finishQuizExit(){const exit=quizExit;if(exit){exit.animation?.complete?.();exit.finish();}}
+  function disposeQuizLayout(){finishQuizExit();quizLayout?.revert();quizLayout=null;}
+  function disposeView(){disposeQuizLayout();if(body.contains($('#toast')))document.body.append($('#toast'));viewController?.abort();viewController=new AbortController();utils.remove(body.querySelectorAll('*'));}
   function route(){
     const raw=location.hash.slice(1)||'home';
     const [next,rawReportId]=raw.split('/');
     let reportId=rawReportId;try{if(rawReportId)reportId=decodeURIComponent(rawReportId);}catch{reportId='';}
     const target=pages[next]?next:'home';
     const revision=++routeRevision;
-    disposeView();page=target;windowAnimation?.cancel();
-    if(target==='home'){
-      document.body.classList.remove('feature-open');visual.focus(false);
-      if(workspace.open){
-        const finish=()=>{if(revision!==routeRevision)return;if(lastPortal)lastPortal.style.visibility='';workspace.close();body.innerHTML='';lastPortal?.focus({preventScroll:true});};
-        if(motionEnabled()&&modalLayout&&lastPortal){modalLayout.update(()=>{workspace.close();lastPortal.style.visibility='';},{duration:420}).then(finish);}else finish();
-      }
-      resumeAmbient();return;
-    }
-    const opening=!workspace.open;
-    document.body.classList.add('feature-open');visual.focus(true);pauseAmbient();
-    $('#workspaceTitle').textContent=pages[target][0];$('#sectionNumber').textContent=pages[target][1];
-    if(target==='report'){
-      const saved=records.find(r=>r.id===reportId);
-      if(saved)currentReport=saved;
-      if(!currentReport || reportId&&currentReport.id!==reportId){renderReportFromId(reportId,revision);}
-      else renderReport();
-    }else if(target==='check')renderCheck();else if(target==='contacts')renderContacts();else if(target==='practice')renderQuiz();else renderHistory(revision);
-    if(opening){
-      $('.workspace-surface').dataset.layoutId='portal-'+(lastPortal?.dataset.portal||target);
-      
-      if(motionEnabled()&&modalLayout&&lastPortal){modalLayout.record();workspace.showModal();lastPortal.style.visibility='hidden';windowAnimation=modalLayout.animate({duration:600});}
-      else workspace.showModal();
-    }
-    // Only the first open animates the full window. Tab changes never call this.
-    if(opening&&motionEnabled()&&!(modalLayout&&lastPortal))windowAnimation=animate(workspace,{opacity:[0,1],y:[38,0],scale:[.96,1],duration:540,ease:'outExpo'});
-    else if(!opening||!motionEnabled()) {workspace.style.opacity='1';workspace.style.transform='none';}
-    body.scrollTop=0;
+    // Abort old requests immediately, but retain the visible DOM until its close
+    // transition finishes. Reverting a quiz layout before fade-out caused jumps.
+    viewController?.abort();page=target;
+    transitions.navigate({key:target,portal:lastPortal,render(){
+      if(revision!==routeRevision)return;
+      disposeView();
+      $('#workspaceTitle').textContent=pages[target][0];$('#sectionNumber').textContent=pages[target][1];
+      if(target==='report'){
+        const saved=records.find(r=>r.id===reportId);
+        if(saved)currentReport=saved;
+        if(!currentReport||reportId&&currentReport.id!==reportId)renderReportFromId(reportId,revision);
+        else renderReport();
+      }else if(target==='check')renderCheck();else if(target==='contacts')renderContacts();else if(target==='practice')renderQuiz();else renderHistory(revision);
+      body.scrollTop=0;
+    }});
   }
   window.addEventListener('hashchange',route);
   workspace.addEventListener('cancel',ev=>{ev.preventDefault();go('home');});
@@ -310,6 +305,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   }
 
   function renderQuiz(){
+    disposeQuizLayout();
     if(currentQuiz>=quiz.length){
       body.innerHTML=heading('03 / A LITTLE PRACTICE. A STRONGER YOU.','多练习一次，多一份从容。','你已完成本轮虚构情景练习。')+`<section class="surface question-card"><div class="empty-state">${icon('spark')}<h3>本轮答对 ${correctCount} / ${quiz.length} 题</h3><p>${correctCount===quiz.length?'每一次认真核实，都是对家人的守护。':'记住这些提醒，下次就能多一份警觉。'}</p></div>${mistakes.map(q=>`<div class="question-feedback"><b>${q.title}</b><br>${q.why}</div>`).join('')}<button class="primary" id="restartQuiz">再练一轮 ${icon('refresh')}</button></section>`;
       $('#restartQuiz').onclick=()=>{currentQuiz=0;answer=null;correctCount=0;mistakes=[];renderQuiz();};return;
@@ -323,9 +319,19 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   }
   function removeProgressTile(){
     const tile=$(`[data-question="${currentQuiz}"]`);if(!tile)return;
-    const layout=quizLayout;const next=$('#nextQuestion');if(next)next.disabled=true;
-    const finish=()=>{tile.remove();if(next?.isConnected)next.disabled=false;if($('.quiz-progress')&&!$('.quiz-tile'))$('.quiz-progress').textContent='全部完成 ✓';};
-    if(motionEnabled()&&layout)layout.update(()=>tile.classList.add('is-hidden')).then(finish);else finish();
+    const layout=quizLayout,progress=tile.parentElement,next=$('#nextQuestion');if(next)next.disabled=true;
+    let finished=false;
+    const finish=()=>{
+      if(finished)return;finished=true;
+      if(quizExit?.tile===tile)quizExit=null;
+      tile.remove();if(next?.isConnected)next.disabled=false;
+      if(progress.isConnected&&!progress.querySelector('.quiz-tile'))progress.textContent='全部完成 ✓';
+    };
+    if(motionEnabled()&&layout){
+      const exit={tile,finish,animation:null};quizExit=exit;
+      exit.animation=layout.update(()=>tile.classList.add('is-hidden'),{onComplete:finish});
+      if(exit.animation?.completed)finish();
+    }else finish();
   }
   function updateAnswer(q){
     $$('[data-answer]').forEach(button=>{
@@ -336,7 +342,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     $('#scoreCount').textContent=`已答对 ${correctCount} 题`;
     $('#feedback').innerHTML=`<div class="question-feedback" role="status"><b>${answer===q.correct?'✓ 这一步，让安心更近了。':'✕ 再多核实一步，会更稳妥。'}</b><br>${q.why}</div><button id="nextQuestion" class="primary">${currentQuiz===quiz.length-1?'查看本轮结果':'下一道情景'} ${icon('arrow')}</button>`;
     if(motionEnabled())animate($('#feedback'),{y:[10,0],opacity:[0,1],duration:300,ease:'outQuad'});
-    $('#nextQuestion').onclick=()=>{quizLayout?.revert();quizLayout=null;currentQuiz++;answer=null;renderQuiz();body.scrollTop=0;};
+    $('#nextQuestion').onclick=()=>{currentQuiz++;answer=null;renderQuiz();body.scrollTop=0;};
   }
 
   function updateHistoryHint(){$('#historyHint').textContent=records.length?`${records.length} 次演示，记录在这里`:'YOUR MOMENTS OF CLARITY';}
@@ -398,13 +404,13 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     if(page==='check'||page==='history'){disposeView();if(page==='check')renderCheck();else renderHistory();}
     settingsModal();
   }
-  function pauseAmbient(){ambientAnimations.forEach(animation=>animation.pause());}
-  function resumeAmbient(){if(motionEnabled()&&page==='home')ambientAnimations.forEach(animation=>animation.resume());}
+  function pauseAmbient(){entranceAnimations.forEach(animation=>animation.complete());ambientAnimations.forEach(animation=>animation.pause());$$('.portal-node').forEach(node=>{utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');});}
+  function resumeAmbient(){if(motionEnabled()&&page==='home'&&transitions.state==='closed')ambientAnimations.forEach(animation=>animation.resume());}
   function syncMotion(){
     document.body.classList.toggle('motion-off',paused||mediaQuery.matches);
     $('#motionButton').innerHTML=icon(paused?'play':'pause');$('#motionButton').setAttribute('aria-label',paused?'恢复动态效果':'暂停动态效果');
     $('#motionState').textContent=paused?'MOTION OFF':'MOTION ON';
-    if(!motionEnabled()){pauseAmbient();visual.pause();windowAnimation?.complete();}else{visual.resume();visual.focus(page!=='home');resumeAmbient();}
+    if(!motionEnabled()){pauseAmbient();finishQuizExit();visual.pause();transitions.complete();}else{visual.resume();visual.focus(page!=='home'||transitions.state!=='closed');resumeAmbient();}
   }
   function toggleMotion(){paused=!paused;setStored('qinan-motion-paused',String(paused));syncMotion();}
   const motionChange=()=>{paused=mediaQuery.matches||getStored('qinan-motion-paused','false')==='true';syncMotion();};mediaQuery.addEventListener('change',motionChange);
@@ -419,9 +425,9 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
 
   function setupPortalMotion(){
     if(motionEnabled()){
-      animate('.intro-copy',{opacity:[0,1],y:[18,0],duration:1050,ease:'outExpo'});
+      entranceAnimations.push(animate('.intro-copy',{opacity:[0,1],y:[18,0],duration:1050,ease:'outExpo'}));
       $$('.portal-node').forEach((node,i)=>{
-        animate(node,{opacity:[0,1],scale:[.86,1],duration:1000,delay:160+i*95,ease:'outExpo'});
+        entranceAnimations.push(animate(node,{opacity:[0,1],scale:[.86,1],duration:1000,delay:160+i*95,ease:'outExpo'}));
         
       });
     }
@@ -429,15 +435,22 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     // Continuous float is independent of magnetic hover; remove only the hovered properties.
     $$('.portal-node').forEach(node=>{
       const move=ev=>{
-        if(!motionEnabled()||innerWidth<700)return;
+        if(!motionEnabled()||page!=='home'||transitions.state!=='closed'||innerWidth<700)return;
+        visual.setPortalFocus?.({x:ev.clientX/innerWidth*2-1,y:1-ev.clientY/window.innerHeight*2});
         const rect=node.getBoundingClientRect(),x=(ev.clientX-rect.left)/rect.width,y=(ev.clientY-rect.top)/rect.height;
         node.style.setProperty('--px',`${x*100}%`);node.style.setProperty('--py',`${y*100}%`);
         utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');
         animate(node,{rotateX:(.5-y)*9,rotateY:(x-.5)*11,duration:450,ease:'outQuad'});
       };
-      const leave=()=>{if(!motionEnabled())return;utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');animate(node,{rotateX:0,rotateY:0,duration:600,ease:createSpring({stiffness:130,damping:18})});};
+      const leave=()=>{visual.setPortalFocus?.(null);if(!motionEnabled()||page!=='home'||transitions.state!=='closed')return;utils.remove(node,undefined,'rotateX');utils.remove(node,undefined,'rotateY');animate(node,{rotateX:0,rotateY:0,duration:600,ease:createSpring({stiffness:130,damping:18})});};
+      const focus=()=>{
+        if(!motionEnabled()||page!=='home'||transitions.state!=='closed')return;
+        const rect=node.getBoundingClientRect();
+        visual.setPortalFocus?.({x:(rect.left+rect.width/2)/innerWidth*2-1,y:1-(rect.top+rect.height/2)/window.innerHeight*2});
+      };
       node.addEventListener('pointermove',move);node.addEventListener('pointerleave',leave);
-      pointerDisposers.push(()=>{node.removeEventListener('pointermove',move);node.removeEventListener('pointerleave',leave);});
+      node.addEventListener('focus',focus);node.addEventListener('blur',leave);
+      pointerDisposers.push(()=>{node.removeEventListener('pointermove',move);node.removeEventListener('pointerleave',leave);node.removeEventListener('focus',focus);node.removeEventListener('blur',leave);});
     });
   }
   setupPortalMotion();syncMotion();updateMode();updateHistoryHint();route();
@@ -445,6 +458,6 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
   const afterPrint=()=>{$$('.report-details').forEach(details=>{details.open=details.dataset.wasOpen==='true';});};
   window.addEventListener('beforeprint',onPrint);window.addEventListener('afterprint',afterPrint);
   return {
-    destroy(){modalLayout?.revert();quizLayout?.revert();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);windowAnimation?.cancel();ambientAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
+    destroy(){transitions.destroy();disposeQuizLayout();destroyed=true;activeTask=null;healthController?.abort();viewController?.abort();activeRequests.forEach(controller=>controller.abort());clearFile();clearTimeout(toastTimer);ambientAnimations.forEach(a=>a.cancel());entranceAnimations.forEach(a=>a.cancel());utils.remove(document.querySelectorAll('*'));pointerDisposers.forEach(fn=>fn());window.removeEventListener('hashchange',route);window.removeEventListener('beforeprint',onPrint);window.removeEventListener('afterprint',afterPrint);mediaQuery.removeEventListener('change',motionChange);visual.dispose();},
   };
 }

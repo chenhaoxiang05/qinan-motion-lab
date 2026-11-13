@@ -1,48 +1,366 @@
 import * as THREE from 'three';
-import {animate} from 'animejs';
-import glyphs from './glyphs.json';
+import { animate } from 'animejs';
+import glyphs from './glyphs.json' with { type: 'json' };
+import { buildShieldGeometry, createVoxelTargets } from './scene-geometry.js';
+import { screenVertex, flowFragment, liquidFragment, configureVoxelMaterial } from './scene-shaders.js';
 
-export function createSanctuary(host){
-  let renderer,paused=matchMedia('(prefers-reduced-motion: reduce)').matches,focused=false,form='shield',transition=null;
-  const fallback=()=>{host.innerHTML='<div class="static-shield">安</div>';return {pause(){paused=true;},resume(){paused=false;},focus(){},async toggleForm(){form=form==='shield'?'slogan':'shield';host.innerHTML=form==='shield'?'<div class="static-shield">安</div>':'<div class="static-slogan">先核实<br>再放心</div>';return form;},dispose(){host.innerHTML='';}};};
-  try{renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});}catch{return fallback();}
-  renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));host.append(renderer.domElement);host.classList.add('webgl-ready');
-  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(38,1,.1,100);camera.position.z=8.8;
-  scene.add(new THREE.AmbientLight(0xb4d3a0,2));
-  for(const [color,intensity,x,y,z] of [[0xe3ffd0,6,-3,4,5],[0x7cc654,4,3,-1,3]]){const light=new THREE.DirectionalLight(color,intensity);light.position.set(x,y,z);scene.add(light);}
-  const group=new THREE.Group();scene.add(group);
-  const shape=new THREE.Shape();shape.moveTo(0,1.65);shape.lineTo(1.25,1.15);shape.lineTo(1.15,-.25);shape.bezierCurveTo(1,-.95,.45,-1.4,0,-1.65);shape.bezierCurveTo(-.45,-1.4,-1,-.95,-1.15,-.25);shape.lineTo(-1.25,1.15);shape.closePath();
-  const shield=new THREE.Group();group.add(shield);
-  const geometry=new THREE.ExtrudeGeometry(shape,{depth:.22,bevelEnabled:true,bevelSegments:4,steps:1,bevelSize:.1,bevelThickness:.08});
-  const jade=new THREE.MeshStandardMaterial({color:0x739c46,metalness:.72,roughness:.25,transparent:true});
-  shield.add(new THREE.Mesh(geometry,jade));
-  const outline=new THREE.LineSegments(new THREE.EdgesGeometry(geometry,35),new THREE.LineBasicMaterial({color:0xc5ef91,transparent:true,opacity:.6}));shield.add(outline);
-  function mask(text,w=180,h=140){const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const c=canvas.getContext('2d');c.fillStyle='#fff';const lines=text==='安'?['安']:['先核实','再放心'];const size=text==='安'?100:53;lines.forEach((line,row)=>{[...line].forEach((ch,col)=>{c.save();c.translate((w-line.length*size)/2+col*size,h/2-(lines.length-1)*size*.6+row*size*1.15+size*.36);c.scale(size/1000,-size/1000);c.fill(new Path2D(glyphs[ch]));c.restore();});});return {canvas,data:c.getImageData(0,0,w,h).data,w,h};}
-  const letter=mask('安');const texture=new THREE.CanvasTexture(letter.canvas);const letterMaterial=new THREE.MeshBasicMaterial({map:texture,transparent:true,color:0xe2ffc1,depthWrite:false});const letterMesh=new THREE.Mesh(new THREE.PlaneGeometry(2.5,1.95),letterMaterial);letterMesh.position.z=.315;shield.add(letterMesh);
-  const slogan=mask('slogan');const points=[];
-  for(let y=0;y<slogan.h;y+=2)for(let x=0;x<slogan.w;x+=2)if(slogan.data[(y*slogan.w+x)*4+3]>128)points.push(new THREE.Vector3((x/slogan.w-.5)*3.7,(.5-y/slogan.h)*2.9,0));
-  const n=innerWidth<700?2048:4096,starts=[],ends=[],offsets=[];
-  const path=new Path2D();path.moveTo(0,1.65);path.lineTo(1.25,1.15);path.lineTo(1.15,-.25);path.bezierCurveTo(1,-.95,.45,-1.4,0,-1.65);path.bezierCurveTo(-.45,-1.4,-1,-.95,-1.15,-.25);path.lineTo(-1.25,1.15);path.closePath();
-  const ctx=document.createElement('canvas').getContext('2d');let seed=2341;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)|0;return(seed>>>0)/4294967296;};
-  for(let i=0;i<n;i++){let x,y;do{x=(random()-.5)*2.5;y=(random()-.5)*3.3;}while(!ctx.isPointInPath(path,x,y));starts.push(new THREE.Vector3(x,y,random()*.2));const p=points[i%points.length];ends.push(new THREE.Vector3(p.x,p.y,(i%2)*.06));offsets.push(new THREE.Vector3((random()-.5)*4,(random()-.5)*4,(random()-.5)*3));}
-  const voxels=new THREE.InstancedMesh(new THREE.BoxGeometry(.044,.044,.044),new THREE.MeshStandardMaterial({color:0xc8ef96,metalness:.4,roughness:.3}),n);voxels.visible=false;group.add(voxels);const dummy=new THREE.Object3D();
-  const state={progress:0};let raf=0,time=0,last=0,yaw=0,pitch=0,dragging=false,previous;
-  function updateVoxels(){const t=state.progress;for(let i=0;i<n;i++){dummy.position.copy(starts[i]).lerp(ends[i],t).addScaledVector(offsets[i],Math.sin(t*Math.PI)*.65);dummy.rotation.set(Math.sin(t*Math.PI)*i*.013,Math.sin(t*Math.PI)*i*.017,0);dummy.updateMatrix();voxels.setMatrixAt(i,dummy.matrix);}voxels.instanceMatrix.needsUpdate=true;}
-  function render(){group.rotation.set(pitch+Math.sin(time*.4)*.035,yaw+Math.sin(time*.25)*.09,0);group.position.y=group.userData.y+Math.sin(time*.7)*.045;renderer.render(scene,camera);}
-  function loop(now){raf=0;if(paused||focused)return;time+=Math.min((now-(last||now))/1000,.04);last=now;render();raf=requestAnimationFrame(loop);}
-  function run(){if(!raf&&!paused&&!focused){last=0;raf=requestAnimationFrame(loop);}}
-  function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();const mobile=innerWidth<700;group.scale.setScalar(mobile?Math.min(.5,innerWidth/760):Math.min(.86,innerWidth/1500));const height=2*Math.tan(THREE.MathUtils.degToRad(38)/2)*camera.position.z;group.userData.y=(.5-(mobile?Math.min(340,innerHeight*.48):innerHeight*.53)/innerHeight)*height;render();}
-  function settle(){if(transition)transition.complete();}
-  const canvas=renderer.domElement;canvas.style.touchAction='pan-y';canvas.onpointerdown=e=>{dragging=true;previous=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);};canvas.onpointerup=canvas.onpointercancel=()=>dragging=false;
-  const move=e=>{if(!dragging||paused||focused||transition)return;yaw=THREE.MathUtils.clamp(yaw+(e.clientX-previous[0])*.005,-.5,.5);pitch=THREE.MathUtils.clamp(pitch+(e.clientY-previous[1])*.005,-.25,.25);previous=[e.clientX,e.clientY];};
-  window.addEventListener('pointermove',move);window.addEventListener('resize',resize);const visibility=()=>{if(document.hidden){cancelAnimationFrame(raf);raf=0;}else run();};document.addEventListener('visibilitychange',visibility);
-  resize();run();
+const clamp = THREE.MathUtils.clamp;
+const mobileViewport = () => window.innerWidth < 700;
+const sceneCenter = () => mobileViewport() ? Math.min(340, window.innerHeight * .48) : window.innerHeight * .53;
+
+/** A local SVG keeps the central symbol readable if WebGL cannot be initialized. */
+function createFallback(host, initialForm = 'shield') {
+  let form = initialForm;
+  const root = document.createElement('div');
+  root.className = 'scene-fallback';
+  root.style.cssText = 'position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 16% 75%,#30374055,transparent 42%),radial-gradient(ellipse at 90% 15%,#65717e22,transparent 40%)';
+  const sculpture = document.createElement('div');
+  sculpture.style.cssText = 'position:absolute;left:50%;transform:translate(-50%,-50%);width:210px;filter:drop-shadow(0 24px 42px #0008)';
+  root.append(sculpture);
+  const shield = `<svg viewBox="0 0 200 242" style="width:100%;height:auto;stroke:none" aria-hidden="true"><defs><linearGradient id="qinan-metal" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fff"/><stop offset=".22" stop-color="#67717c"/><stop offset=".43" stop-color="#e8edf0"/><stop offset=".66" stop-color="#2c333c"/><stop offset=".88" stop-color="#dce4e7"/><stop offset="1" stop-color="#737b84"/></linearGradient><radialGradient id="qinan-glass"><stop stop-color="#303841"/><stop offset="1" stop-color="#11151a"/></radialGradient></defs><path d="M100 16C132 16 162 29 181 41C188 46 189 54 187 69C181 148 158 191 105 227Q100 231 95 227C42 191 19 148 13 69C11 54 12 46 19 41C38 29 68 16 100 16Z" fill="url(#qinan-glass)" stroke="url(#qinan-metal)" stroke-width="11"/><path d="${glyphs['安']}" transform="translate(54 151) scale(.092 -.092)" fill="url(#qinan-metal)"/></svg>`;
+  const slogan = `<svg viewBox="0 0 320 222" style="width:100%;height:auto;stroke:none" aria-hidden="true">${['先核实', '再放心'].map((row, r) => [...row].map((ch, c) => `<path d="${glyphs[ch]}" transform="translate(${c * 105 + 6} ${r * 115 + 89}) scale(.094 -.094)" fill="#e8edef"/>`).join('')).join('')}</svg>`;
+  const render = () => {
+    sculpture.className = form === 'shield' ? 'scene-fallback-shield' : 'scene-fallback-slogan';
+    sculpture.style.top = `${sceneCenter()}px`;
+    sculpture.style.width = `${mobileViewport() ? (form === 'shield' ? 155 : 220) : (form === 'shield' ? 232 : 310)}px`;
+    sculpture.innerHTML = form === 'shield' ? shield : slogan;
+  };
+  host.append(root);
+  host.classList.add('webgl-ready');
+  window.addEventListener('resize', render);
+  render();
   return {
-    pause(){settle();paused=true;cancelAnimationFrame(raf);raf=0;render();},resume(){paused=false;run();},focus(value){settle();focused=value;if(value){cancelAnimationFrame(raf);raf=0;}else run();},
-    toggleForm(){if(transition)return Promise.resolve(form);const target=form==='shield'?'slogan':'shield';yaw=0;pitch=0;voxels.visible=true;updateVoxels();
-      return new Promise(resolve=>{const finish=()=>{form=target;state.progress=target==='slogan'?1:0;updateVoxels();shield.visible=target==='shield';voxels.visible=target==='slogan';jade.opacity=1;letterMaterial.opacity=1;outline.material.opacity=.6;transition=null;render();resolve(form);};
-        if(paused){finish();return;}
-        shield.visible=true;transition=animate(state,{progress:target==='slogan'?1:0,duration:1800,ease:'inOut(3)',onUpdate:()=>{updateVoxels();const opacity=Math.max(0,1-state.progress*8);jade.opacity=opacity;letterMaterial.opacity=opacity;outline.material.opacity=opacity*.6;},onComplete:finish});});
-    },dispose(){transition?.cancel();cancelAnimationFrame(raf);window.removeEventListener('pointermove',move);window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibility);scene.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});texture.dispose();renderer.dispose();canvas.remove();}
+    pause() {}, resume() {}, focus(value) { root.style.opacity = value ? '.36' : '1'; },
+    setPortalFocus() {}, pointerPulse() {},
+    async toggleForm() { form = form === 'shield' ? 'slogan' : 'shield'; render(); return form; },
+    dispose() { window.removeEventListener('resize', render); root.remove(); host.classList.remove('webgl-ready'); }
+  };
+}
+
+/** A studio made of emissive softboxes, generated locally and discarded after PMREM. */
+function createStudioEnvironment(renderer) {
+  const studio = new THREE.Scene();
+  studio.background = new THREE.Color(0x22262d);
+  const panels = [
+    { position: [-3.5, 2.7, 4], scale: [2.2, 5.3, 1], color: 0xffffff, intensity: 6 },
+    { position: [3.2, .4, 2], scale: [.8, 5.8, 1], color: 0xd8e5f5, intensity: 4.5 },
+    { position: [.2, 4.5, .3], scale: [4, 1.2, 1], color: 0xffffff, intensity: 4 },
+    { position: [-1.2, -3.2, 3], scale: [3, .32, 1], color: 0xe1e9e2, intensity: 2 },
+    { position: [1, 1.3, -4], scale: [1.3, 4, 1], color: 0x8da1ad, intensity: 1.2 }
+  ];
+  panels.forEach(({ position, scale, color, intensity }) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide }));
+    mesh.position.set(...position); mesh.scale.set(...scale); mesh.lookAt(0, 0, 0); studio.add(mesh);
+  });
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  let target;
+  try { target = pmrem.fromScene(studio, .035, .1, 100); }
+  finally { studio.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); }); pmrem.dispose(); }
+  return target;
+}
+
+/** One canvas: a restrained liquid field behind an actual curved metal sculpture. */
+export function createSanctuary(host) {
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ alpha: false, antialias: true, powerPreference: 'high-performance' }); }
+  catch { return createFallback(host); }
+
+  const canvas = renderer.domElement;
+  canvas.setAttribute('aria-hidden', 'true');
+  canvas.style.touchAction = 'pan-y';
+  host.append(canvas);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  renderer.autoClear = false;
+
+  const disposables = new Set();
+  const own = resource => { disposables.add(resource); return resource; };
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, .1, 40);
+  camera.position.z = 8.8;
+  const group = new THREE.Group();
+  const shield = new THREE.Group();
+  group.add(shield); scene.add(group);
+  let fallback, disposed = false;
+  let raf = 0, elapsed = 0, last = 0, centerY = 0, pulseAt = -100;
+  let paused = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let focused = false, form = 'shield', transition = null, transitionTarget = null;
+  let transitionPromise = null, finishTransition = null;
+  let yaw = 0, pitch = 0, dragging = false, dragPointer = null, previousDrag = null;
+  let previousPointer = null, pointerStamp = 0;
+  const pointer = new THREE.Vector2(.5, .5), velocity = new THREE.Vector2();
+  const focusTarget = new THREE.Vector2(), focusCurrent = new THREE.Vector2();
+  const state = { progress: 0 };
+  let backgroundScene, flowScene, screenCamera, flowUniforms, backgroundUniforms;
+  let flowRead, flowWrite, voxels, voxelMaterial, voxelUniforms, solidMaterials;
+
+  const cleanupResources = () => {
+    cancelAnimationFrame(raf); raf = 0;
+    disposables.forEach(resource => resource.dispose());
+    disposables.clear();
+    renderer.dispose(); canvas.remove();
+    host.classList.remove('webgl-ready');
+  };
+
+  try {
+    const environment = own(createStudioEnvironment(renderer));
+    scene.environment = environment.texture;
+    scene.environmentIntensity = 1.05;
+    const fill = new THREE.HemisphereLight(0xe4eaf1, 0x181a1e, 1.1); scene.add(fill);
+    const key = new THREE.DirectionalLight(0xf7fcff, 3.2); key.position.set(-3.5, 4.5, 5); scene.add(key);
+    const edge = new THREE.DirectionalLight(0xaebdcf, 1.8); edge.position.set(4, -.5, 2); scene.add(edge);
+
+    const geometries = buildShieldGeometry();
+    Object.values(geometries).forEach(own);
+    const rim = own(new THREE.MeshPhysicalMaterial({ color: 0xe3e9ed, metalness: 1, roughness: .19, clearcoat: 1, clearcoatRoughness: .12, envMapIntensity: 1.2 }));
+    const core = own(new THREE.MeshPhysicalMaterial({ color: 0x171d25, metalness: .86, roughness: .29, clearcoat: 1, clearcoatRoughness: .15, envMapIntensity: .75 }));
+    const letter = own(new THREE.MeshPhysicalMaterial({ color: 0xe8ede9, metalness: .92, roughness: .23, clearcoat: .7, envMapIntensity: 1.05 }));
+    const inset = own(new THREE.MeshStandardMaterial({ color: 0x626c77, metalness: 1, roughness: .3, envMapIntensity: .8 }));
+    solidMaterials = [rim, core, letter, inset];
+    shield.add(new THREE.Mesh(geometries.rimGeometry, rim), new THREE.Mesh(geometries.coreGeometry, core), new THREE.Mesh(geometries.glyphGeometry, letter), new THREE.Mesh(geometries.accentGeometry, inset));
+    // Render front lettering after the face while a morph fades out the solid shell.
+    shield.children.forEach((mesh, index) => { mesh.renderOrder = index; });
+
+    const count = mobileViewport() ? 2048 : 4096;
+    const targets = createVoxelTargets(count, geometries);
+    const cube = own(new THREE.BoxGeometry(.034, .034, .034));
+    cube.setAttribute('aStart', new THREE.InstancedBufferAttribute(targets.starts, 3));
+    cube.setAttribute('aEnd', new THREE.InstancedBufferAttribute(targets.ends, 3));
+    const arcs = new Float32Array(count * 3), seeds = new Float32Array(count);
+    let seed = 7291;
+    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
+    for (let i = 0; i < count; i++) {
+      seeds[i] = random();
+      const angle = random() * Math.PI * 2, radius = .45 + random() * 1.4;
+      arcs.set([Math.cos(angle) * radius, Math.sin(angle) * radius * .75, (random() - .5) * 2.2], i * 3);
+    }
+    cube.setAttribute('aArc', new THREE.InstancedBufferAttribute(arcs, 3));
+    cube.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 1));
+    voxelMaterial = own(new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: .84, roughness: .25, transparent: true, depthWrite: true, envMapIntensity: 1.1 }));
+    voxelUniforms = { uProgress: { value: 0 } };
+    configureVoxelMaterial(voxelMaterial, voxelUniforms);
+    voxels = own(new THREE.InstancedMesh(cube, voxelMaterial, count));
+    const identity = new THREE.Matrix4(), color = new THREE.Color();
+    for (let i = 0; i < count; i++) {
+      voxels.setMatrixAt(i, identity);
+      voxels.setColorAt(i, color.fromArray(targets.colors, i * 3));
+    }
+    voxels.instanceMatrix.needsUpdate = true;
+    voxels.instanceColor.needsUpdate = true;
+    voxels.visible = false;
+    voxels.frustumCulled = false;
+    voxels.renderOrder = 4;
+    group.add(voxels);
+
+    const plane = own(new THREE.PlaneGeometry(2, 2));
+    screenCamera = new THREE.Camera();
+    const flowSize = mobileViewport() ? 128 : 256;
+    const targetOptions = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false, type: THREE.UnsignedByteType };
+    flowRead = own(new THREE.WebGLRenderTarget(flowSize, flowSize, targetOptions));
+    flowWrite = own(new THREE.WebGLRenderTarget(flowSize, flowSize, targetOptions));
+    flowUniforms = {
+      uPrevious: { value: flowRead.texture }, uPointer: { value: pointer }, uVelocity: { value: velocity },
+      uAspect: { value: 1 }, uDelta: { value: 0 }, uInject: { value: 0 }, uReset: { value: 1 }
+    };
+    const flowMaterial = own(new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: flowFragment, uniforms: flowUniforms, depthTest: false, depthWrite: false, toneMapped: false }));
+    flowScene = new THREE.Scene(); flowScene.add(new THREE.Mesh(plane, flowMaterial));
+    for (const target of [flowRead, flowWrite]) { renderer.setRenderTarget(target); renderer.render(flowScene, screenCamera); }
+    renderer.setRenderTarget(null); flowUniforms.uReset.value = 0;
+    backgroundUniforms = {
+      uFlow: { value: flowRead.texture }, uResolution: { value: new THREE.Vector2() },
+      uFocus: { value: focusCurrent }, uPulseOrigin: { value: new THREE.Vector2(.5, .5) },
+      uCenter: { value: new THREE.Vector2(.5, .47) }, uTime: { value: 0 }, uPulseAge: { value: -1 }, uDim: { value: 0 }
+    };
+    const backgroundMaterial = own(new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: liquidFragment, uniforms: backgroundUniforms, depthTest: false, depthWrite: false, toneMapped: false }));
+    backgroundScene = new THREE.Scene(); backgroundScene.add(new THREE.Mesh(plane, backgroundMaterial));
+  } catch (error) {
+    cleanupResources();
+    console.warn('The 3D scene is unavailable; displaying the local shield instead.', error);
+    return createFallback(host);
+  }
+
+  function updateMorph() {
+    voxelUniforms.uProgress.value = state.progress;
+    const opacity = 1 - THREE.MathUtils.smoothstep(state.progress, 0, .15);
+    const intermediate = opacity < .999;
+    solidMaterials.forEach(material => {
+      if (material.transparent !== intermediate) { material.transparent = intermediate; material.needsUpdate = true; }
+      material.opacity = opacity;
+      material.depthWrite = !intermediate;
+    });
+    shield.visible = opacity > .001;
+    voxelMaterial.opacity = THREE.MathUtils.smoothstep(state.progress, 0, .06);
+    voxels.visible = state.progress > 0;
+  }
+
+  function draw(delta = 0) {
+    if (disposed || fallback || document.hidden) return;
+    const motion = paused || focused ? 0 : 1;
+    focusCurrent.lerp(focusTarget, delta > 0 ? 1 - Math.exp(-delta * 4) : 1);
+    const sloganWeight = state.progress;
+    group.rotation.set(
+      (pitch + Math.sin(elapsed * .35) * .028 - focusCurrent.y * .09) * (1 - sloganWeight * .8),
+      (yaw + Math.sin(elapsed * .26) * .11 + focusCurrent.x * .12) * (1 - sloganWeight * .9),
+      Math.sin(elapsed * .18) * .015 * (1 - sloganWeight)
+    );
+    group.position.y = centerY + Math.sin(elapsed * .65) * .035 * motion;
+    if (delta > 0 && motion) {
+      flowUniforms.uPrevious.value = flowRead.texture;
+      flowUniforms.uDelta.value = delta;
+      flowUniforms.uInject.value = pointerStamp;
+      renderer.setRenderTarget(flowWrite);
+      renderer.render(flowScene, screenCamera);
+      [flowRead, flowWrite] = [flowWrite, flowRead];
+      pointerStamp *= Math.exp(-delta * 11);
+      velocity.multiplyScalar(Math.exp(-delta * 9));
+    }
+    backgroundUniforms.uFlow.value = flowRead.texture;
+    backgroundUniforms.uTime.value = elapsed;
+    backgroundUniforms.uPulseAge.value = pulseAt < 0 ? -1 : elapsed - pulseAt;
+    backgroundUniforms.uDim.value = focused ? 1 : 0;
+    renderer.setRenderTarget(null);
+    renderer.clear();
+    renderer.render(backgroundScene, screenCamera);
+    renderer.clearDepth();
+    renderer.render(scene, camera);
+  }
+
+  function loop(now) {
+    raf = 0;
+    if (disposed || fallback || paused || focused || document.hidden) return;
+    const delta = Math.min((now - (last || now)) / 1000, .04);
+    last = now; elapsed += delta;
+    draw(delta);
+    raf = requestAnimationFrame(loop);
+  }
+  function run() {
+    if (!raf && !disposed && !fallback && !paused && !focused && !document.hidden) { last = 0; raf = requestAnimationFrame(loop); }
+  }
+  function stop() { cancelAnimationFrame(raf); raf = 0; last = 0; }
+  function settle() { if (transitionTarget) { transition?.cancel(); finishTransition?.(); } }
+
+  function resize() {
+    if (disposed) return;
+    const width = Math.max(1, window.innerWidth), height = Math.max(1, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobileViewport() ? 1.25 : 1.5));
+    renderer.setSize(width, height);
+    camera.aspect = width / height; camera.updateProjectionMatrix();
+    const frustumHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.position.z;
+    centerY = (.5 - sceneCenter() / height) * frustumHeight;
+    // Reserve the top title and lower action row; the slogan is slightly wider than the shield.
+    const targetPixels = mobileViewport() ? Math.min(218, width * .56, height * .30) : Math.min(326, height * .39, width * .23);
+    group.scale.setScalar(targetPixels / height * frustumHeight / 3);
+    backgroundUniforms.uResolution.value.set(width, height);
+    backgroundUniforms.uCenter.value.set(.5, 1 - sceneCenter() / height);
+    flowUniforms.uAspect.value = width / height;
+    draw();
+  }
+
+  function pointerMove(event) {
+    if (disposed || paused || focused) return;
+    const x = clamp(event.clientX / window.innerWidth, 0, 1), y = clamp(1 - event.clientY / window.innerHeight, 0, 1);
+    if (previousPointer) {
+      velocity.set(clamp((x - previousPointer.x) * 24, -.8, .8), clamp((y - previousPointer.y) * 24, -.8, .8));
+      pointerStamp = Math.min(1, velocity.length() * 4);
+    }
+    pointer.set(x, y); previousPointer = { x, y };
+    if (dragging && event.pointerId === dragPointer && previousDrag && !transition) {
+      yaw = clamp(yaw + (event.clientX - previousDrag.x) * .004, -.44, .44);
+      pitch = clamp(pitch + (event.clientY - previousDrag.y) * .003, -.2, .2);
+      previousDrag = { x: event.clientX, y: event.clientY };
+    }
+  }
+  function pointerDown(event) {
+    if (paused || focused || transition || event.button !== 0) return;
+    const radius = mobileViewport() ? 130 : 190;
+    if (Math.hypot(event.clientX - window.innerWidth / 2, event.clientY - sceneCenter()) > radius) return;
+    dragging = true; dragPointer = event.pointerId;
+    previousDrag = { x: event.clientX, y: event.clientY };
+    canvas.setPointerCapture?.(event.pointerId);
+  }
+  function pointerUp(event) {
+    if (event.pointerId !== dragPointer) return;
+    if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    dragging = false; dragPointer = null; previousDrag = null;
+  }
+  function visibility() {
+    if (document.hidden) { stop(); transition?.pause(); }
+    else { if (!paused && !focused) transition?.resume(); draw(); run(); }
+  }
+  function pulse(x = .5, y = 1 - sceneCenter() / window.innerHeight) {
+    if (fallback) return fallback.pointerPulse(x, y);
+    if (disposed || paused || focused) return;
+    backgroundUniforms.uPulseOrigin.value.set(clamp(Number.isFinite(x) ? x : .5, 0, 1), clamp(Number.isFinite(y) ? y : .5, 0, 1));
+    pulseAt = elapsed; run();
+  }
+  function detachListeners() {
+    window.removeEventListener('pointermove', pointerMove);
+    window.removeEventListener('pointerup', pointerUp);
+    window.removeEventListener('pointercancel', pointerUp);
+    window.removeEventListener('resize', resize);
+    document.removeEventListener('visibilitychange', visibility);
+    canvas.removeEventListener('pointerdown', pointerDown);
+    canvas.removeEventListener('webglcontextlost', contextLost);
+  }
+  function contextLost(event) {
+    event.preventDefault(); settle(); stop(); detachListeners(); cleanupResources();
+    fallback = createFallback(host, form);
+  }
+  window.addEventListener('pointermove', pointerMove, { passive: true });
+  window.addEventListener('pointerup', pointerUp);
+  window.addEventListener('pointercancel', pointerUp);
+  window.addEventListener('resize', resize);
+  document.addEventListener('visibilitychange', visibility);
+  canvas.addEventListener('pointerdown', pointerDown);
+  canvas.addEventListener('webglcontextlost', contextLost);
+  resize();
+  host.classList.add('webgl-ready');
+  run();
+
+  return {
+    pause() { if (fallback) return fallback.pause(); paused = true; settle(); stop(); draw(); },
+    resume() { if (fallback) return fallback.resume(); paused = false; draw(); run(); },
+    focus(value) {
+      if (fallback) return fallback.focus(value);
+      focused = Boolean(value); dragging = false; settle();
+      if (focused) stop(); else run();
+      draw();
+    },
+    setPortalFocus(direction) {
+      if (fallback) return fallback.setPortalFocus(direction);
+      const x = Number.isFinite(direction?.x) ? clamp(direction.x, -1, 1) : 0;
+      const y = Number.isFinite(direction?.y) ? clamp(direction.y, -1, 1) : 0;
+      focusTarget.set(x, y);
+      if (paused || focused) draw();
+    },
+    pointerPulse: pulse,
+    toggleForm() {
+      if (fallback) return fallback.toggleForm();
+      if (disposed) return Promise.resolve(form);
+      if (transitionPromise) return transitionPromise;
+      transitionTarget = form === 'shield' ? 'slogan' : 'shield';
+      yaw = 0; pitch = 0; pulse();
+      let resolve;
+      const promise = new Promise(done => { resolve = done; });
+      transitionPromise = promise;
+      finishTransition = () => {
+        if (!transitionTarget) return;
+        form = transitionTarget; state.progress = form === 'slogan' ? 1 : 0;
+        transition = null; transitionTarget = null; transitionPromise = null; finishTransition = null;
+        updateMorph(); draw(); resolve(form);
+      };
+      if (paused || focused || document.hidden) finishTransition();
+      else transition = animate(state, {
+        progress: transitionTarget === 'slogan' ? 1 : 0, duration: 1850, ease: 'inOut(3)',
+        onUpdate: updateMorph, onComplete: () => finishTransition?.()
+      });
+      return promise;
+    },
+    dispose() {
+      if (disposed) return;
+      settle(); disposed = true; detachListeners();
+      if (fallback) fallback.dispose(); else cleanupResources();
+    }
   };
 }

@@ -22,7 +22,7 @@ function setup(t,options={}){
   let objectCount=0;const revoked=[];URL.createObjectURL=()=>`blob:test-${++objectCount}`;URL.revokeObjectURL=url=>revoked.push(url);
   const animations=[];
   const motion={animate(target,params){animations.push({target,params});if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
-  const visual={pause(){},resume(){},focus(){},burst(){return true;},dispose(){}};
+  const visual={pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){},...options.visual};
   const app=initApp({...motion,visual,...(options.delay?{delay:options.delay}:{})});
   const $=s=>w.document.querySelector(s);
   const goto=async hash=>{w.location.hash=hash;await tick();};
@@ -51,6 +51,16 @@ test('type tabs support arrow keys without rebuilding the page',async t=>{
   const panel=$('#uploadPanel');$('#type-audio').dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
   assert.strictEqual($('#uploadPanel'),panel);assert.equal(w.document.activeElement.id,'type-video');
   assert.equal($('#type-video').getAttribute('aria-selected'),'true');
+});
+
+test('the sculpture control prevents duplicate morphs and updates its label only after settling',async t=>{
+  const morph=pending();let calls=0;
+  const {$}=setup(t,{visual:{toggleForm(){calls++;return morph.promise;}}});
+  const control=$('#scatterButton');control.click();control.click();
+  assert.equal(calls,1);assert.equal(control.disabled,true);assert.equal(control.getAttribute('aria-busy'),'true');
+  assert.match(control.textContent,/化作安心标语/);
+  morph.resolve('slogan');await tick();
+  assert.equal(control.disabled,false);assert.equal(control.getAttribute('aria-busy'),'false');assert.match(control.textContent,/复原为盾牌/);
 });
 
 test('image selection, invalid formats, replacement and removal remain safe and revoke previews',async t=>{
