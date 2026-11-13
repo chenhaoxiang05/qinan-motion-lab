@@ -16,15 +16,16 @@ function setup(t,options={}){
   w.HTMLDialogElement.prototype.close=function(){this.open=false;};
   w.HTMLMediaElement.prototype.load=function(){};
   w.HTMLElement.prototype.scrollIntoView=function(){};
-  w.fetch=options.fetch||(()=>Promise.reject(new TypeError('offline')));
+  w.fetch=options.fetch||(url=>url.endsWith('/cases')?Promise.resolve({ok:true,json:async()=>[]}):Promise.reject(new TypeError('offline')));
   for(const [key,value] of Object.entries(options.storage||{}))w.localStorage.setItem(key,value);
+  for(const [key,value] of Object.entries(options.session||{}))w.sessionStorage.setItem(key,value);
   const keys=['window','document','location','innerWidth','URL','File','Blob','FormData'];const previous={};
   for(const key of keys){previous[key]=globalThis[key];globalThis[key]=key==='innerWidth'?1440:w[key];}
   let objectCount=0;const revoked=[];URL.createObjectURL=()=>`blob:test-${++objectCount}`;URL.revokeObjectURL=url=>revoked.push(url);
   const animations=[];
   const motion={animate(target,params){animations.push({target,params});if(options.animate)return options.animate(target,params);if(params.onComplete)params.onComplete();return {pause(){},resume(){},cancel(){},complete(){params.onComplete?.();}};},utils:{remove(){}},createSpring:()=> 'linear'};
   const visual={pause(){},resume(){},focus(){},async toggleForm(){return 'slogan';},dispose(){},...options.visual};
-  const app=initApp({...motion,createLayout:options.createLayout,visual,islands:options.islands,startReady:options.startReady,...(options.delay?{delay:options.delay}:{})});
+  const app=initApp({...motion,createLayout:options.createLayout,visual,apiBase:options.apiBase,homeMotion:options.homeMotion,islands:options.islands,startReady:options.startReady,...(options.delay?{delay:options.delay}:{})});
   const $=s=>w.document.querySelector(s);
   const goto=async hash=>{w.location.hash=hash;await tick();};
   const selectFile=async file=>{Object.defineProperty($('#fileInput'),'files',{value:[file],configurable:true});$('#fileInput').dispatchEvent(new w.Event('change'));await tick();};
@@ -59,9 +60,9 @@ test('the sculpture control prevents duplicate morphs and updates its label only
   const {$}=setup(t,{visual:{toggleForm(){calls++;return morph.promise;}}});
   const control=$('#scatterButton');control.click();control.click();
   assert.equal(calls,1);assert.equal(control.disabled,true);assert.equal(control.getAttribute('aria-busy'),'true');
-  assert.match(control.textContent,/化作安心标语/);
+  assert.match(control.textContent,/展开安心标语/);
   morph.resolve('slogan');await tick();
-  assert.equal(control.disabled,false);assert.equal(control.getAttribute('aria-busy'),'false');assert.match(control.textContent,/复原为盾牌/);
+  assert.equal(control.disabled,false);assert.equal(control.getAttribute('aria-busy'),'false');assert.match(control.textContent,/合拢为安印/);
 });
 
 test('image selection, invalid formats, replacement and removal remain safe and revoke previews',async t=>{
@@ -113,15 +114,13 @@ test('quiz answers update in place and repeated clicks do not increase the score
   assert.match($('#feedback').textContent,/这一步/);$('#nextQuestion').click();assert.match($('.question-meta').textContent,/02/);
 });
 
-test('finishing a demo after leaving does not hijack the current page',async t=>{
-  const waits=[];const {$,goto,w}=setup(t,{delay:()=>new Promise(r=>waits.push(r))});
-  $('#watchDemo').click();$('#runDemo').click();await tick();assert.ok($('#progressTitle'));
-  await goto('contacts');const form=$('#contactForm');
-  for(let i=0;i<3;i++){assert.ok(waits[i]);waits[i]();await tick();}
-  assert.strictEqual($('#contactForm'),form);assert.equal(w.location.hash,'#contacts');
-  assert.equal(JSON.parse(w.localStorage.getItem('qinan-demo-history')).length,1);
-  await goto('history');$('[data-report]').click();await tick();assert.match($('#workspaceTitle').textContent,/核验报告/);
-  assert.match($('.mode-notice').textContent,/虚构示例/);
+test('a real job finishing after navigation does not hijack the current page',async t=>{
+  const waits=[],report={id:'case-complete',filename:'voice.mp3',summary:'已完成声音核验',modules:{audio:{status:'completed',score:.7,threshold:.5}}};
+  const {$,goto,w,selectFile}=setup(t,{delay:()=>new Promise(r=>waits.push(r)),fetch:async url=>({ok:true,json:async()=>url.endsWith('/analyze')?{job_id:'job-one'}:url.includes('/jobs/')?{status:'completed',result:report}:url.endsWith('/cases')?[report]:report})});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();assert.ok($('#progressTitle'));
+  await goto('contacts');const form=$('#contactForm');waits[0]();await tick();
+  assert.strictEqual($('#contactForm'),form);assert.equal(w.location.hash,'#contacts');assert.equal(w.localStorage.getItem('qinan-demo-history'),null);
+  await goto('history');$('[data-report]').click();await tick();assert.match($('#workspaceTitle').textContent,/核验报告/);assert.match($('.result-banner').textContent,/已完成声音核验/);
 });
 
 test('a late history request failure cannot overwrite a newer view',async t=>{
@@ -132,11 +131,12 @@ test('a late history request failure cannot overwrite a newer view',async t=>{
   assert.strictEqual($('#contactForm'),form);assert.equal($('#historyList'),null);
 });
 
-test('changing real/demo mode ignores stale health responses',async t=>{
-  const health=pending();const {$}=setup(t,{fetch:()=>health.promise});
-  $('#settings').click();$('#realMode').click();$('#demoMode').click();
-  health.resolve({ok:true,json:async()=>({models:{audio:true,video:true}})});await tick();
-  assert.equal($('#modeLabel').textContent,'交互演示');assert.equal($('#modal').open,true);
+test('old mode settings cannot turn a submitted file into a fabricated report',async t=>{
+  let uploads=0;const {$,goto,w,selectFile}=setup(t,{storage:{'qinan-real-mode':'false'},fetch:async()=>{uploads++;throw new TypeError('offline');}});
+  $('#settings').click();assert.equal($('#demoMode'),null);assert.equal($('#realMode'),null);$('#settingsDone').click();
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
+  assert.equal(uploads,1);assert.match($('#fileError').textContent,/无法连接/);assert.equal($('.selected-name').textContent,'voice.mp3');assert.equal($('#analyzeButton').disabled,false);
+  assert.equal(w.localStorage.getItem('qinan-demo-history'),null);assert.equal($('#exportReport'),null);
 });
 
 test('malformed stored data does not break the interface',async t=>{
@@ -145,10 +145,10 @@ test('malformed stored data does not break the interface',async t=>{
   await goto('contacts');assert.equal($('#contactCount').textContent,'/ 0');await goto('history');assert.ok($('#firstCheck'));
 });
 
-test('a saved demo report can be reopened directly after a refresh',t=>{
+test('an old sample remains readable only through its saved link',t=>{
   const report={id:'demo-saved',demo:true,name:'已保存示例',date:'2026-11-13T08:00:00Z'};
   const {$}=setup(t,{url:'https://qinan.test/#report/demo-saved',storage:{'qinan-demo-history':JSON.stringify([report])}});
-  assert.equal($('#workspace').open,true);assert.match($('.page-heading').textContent,/已保存示例/);assert.ok($('#exportReport'));
+  assert.equal($('#workspace').open,true);assert.match($('.page-heading').textContent,/已保存示例/);assert.ok($('#exportReport'));assert.match($('.mode-notice').textContent,/旧版示例/);
 });
 
 test('report logic respects per-segment thresholds and uncertain image scores',()=>{
@@ -156,6 +156,9 @@ test('report logic respects per-segment thresholds and uncertain image scores',(
   assert.equal(moduleResult({status:'completed',segments:[{score:.72,threshold:.7}]}).status,'flagged');
   assert.equal(moduleResult({status:'completed',score:.008,threshold:.5,sensitivity_threshold:.007}).status,'uncertain');
   assert.equal(moduleResult({status:'failed',score:.9}).status,'unavailable');
+  assert.equal(moduleResult({status:'completed',score:.9}).status,'flagged','legacy reports keep the documented default threshold of .5');
+  assert.equal(moduleResult({status:'completed',score:0}).status,'below');
+  assert.equal(moduleResult({status:'completed'}).status,'unavailable');
   assert.equal(moduleResult({status:'completed',score:.4,threshold:.5,secondary_check:{score:.65,threshold:.7}}).status,'below');
 });
 
@@ -238,14 +241,15 @@ test('late optional islands hydrate an already usable native upload after startu
   assert.equal(ready.uploads.length,1);assert.ok($('[data-folder]'));assert.equal($('#chooseFile'),null);
 });
 
-test('inline status follows actual demo stages and is explicitly labeled as a simulation',async t=>{
-  const islands=trackedIslands(),waits=[];const {$}=setup(t,{islands,delay:()=>new Promise(r=>waits.push(r))});
-  $('#watchDemo').click();$('#runDemo').click();await tick();
-  const status=islands.statuses[0];assert.equal(status.props.state,'thinking');assert.match(status.props.detail,/交互演示/);
-  waits[0]();await tick();assert.equal(status.props.state,'analyzing');
-  waits[1]();await tick();assert.equal(status.props.state,'writing');
+test('inline status follows submitted job responses, never a simulated timer',async t=>{
+  const submit=pending(),islands=trackedIslands(),waits=[];let polls=0;
+  const {$,goto,w,selectFile}=setup(t,{islands,delay:()=>new Promise(r=>waits.push(r)),fetch:url=>url.endsWith('/analyze')?submit.promise:Promise.resolve({ok:true,json:async()=>++polls===1?{status:'processing',message:'正在检查声音片段'}:{status:'completed',result:{id:'job-result',filename:'voice.mp3',summary:'声音核验已完成',modules:{audio:{status:'completed',score:0,threshold:.5}}}}})});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();
+  const status=islands.statuses[0];assert.equal(status.props.state,'loading');assert.equal(waits.length,0);
+  submit.resolve({ok:true,json:async()=>({job_id:'job-one'})});await tick();assert.equal(status.props.state,'analyzing');assert.match(status.props.detail,/已提交/);
+  waits[0]();await tick();assert.equal(status.props.label,'正在检查声音片段');
   $('#motionButton').click();assert.equal(status.props.paused,true);
-  waits[2]();await tick();assert.equal(status.destroyed,true);assert.equal(status.connectedOnDestroy,true);assert.ok($('#exportReport'));
+  waits[1]();await tick();assert.equal(status.destroyed,true);assert.equal(status.connectedOnDestroy,true);assert.ok($('#exportReport'));
 });
 
 test('picker focus-return fallback settles the folder without discarding the previous file',async t=>{
@@ -391,4 +395,60 @@ test('the familiar-voice premise remains readable in the narrow-screen audio cas
     const premise=$('#practiceMaterial .sender-meta');assert.match(premise.textContent,/声音熟悉/);
     for(let node=premise;node&&node!==w.document.body;node=node.parentElement)assert.notEqual(w.getComputedStyle(node).display,'none',`familiar voice remains visible at ${width}px`);
   }
+});
+
+
+test('configured API submits the selected screenshot once with the existing multipart contract',async t=>{
+  const calls=[];const {$,goto,w,selectFile}=setup(t,{apiBase:'https://service.test/api/',delay:()=>new Promise(()=>{}),fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({job_id:'job-remote'})};}});
+  await goto('check');$('#type-chat').click();await selectFile(new w.File(['pixels'],'chat.png',{type:'image/png'}));const button=$('#analyzeButton');button.click();button.click();await tick();
+  assert.equal(calls.length,1);assert.equal(calls[0].url,'https://service.test/api/analyze');assert.equal(calls[0].options.method,'POST');
+  assert.equal(calls[0].options.body.get('file').name,'chat.png');assert.equal(calls[0].options.body.get('scene'),'chat');assert.equal(calls[0].options.body.get('context'),'');
+  assert.deepEqual(JSON.parse(w.sessionStorage.getItem('qinan-active-task')),{id:'job-remote',source:'https://service.test/api'});
+});
+
+test('old samples never populate the formal history list',async t=>{
+  const sample={id:'demo-old',demo:true,name:'旧文件'};const {$,goto}=setup(t,{storage:{'qinan-demo-history':JSON.stringify([sample]),'qinan-real-mode':'false'}});
+  await goto('history');assert.ok($('#firstCheck'));assert.equal($('[data-report]'),null);assert.doesNotMatch($('#historyList').textContent,/旧文件|演示/);
+});
+
+test('a legacy pending job resumes against the default API without uploading again',async t=>{
+  const calls=[];const {$,goto,w}=setup(t,{session:{'qinan-active-job':'old-job'},delay:async()=>{},fetch:async url=>{calls.push(url);return {ok:true,json:async()=>({status:'completed',result:{id:'saved-case',filename:'saved.mp3',summary:'已从保存的报告恢复',modules:{}}})};}});
+  await goto('check');$('#resumeTask').click();await tick();
+  assert.deepEqual(calls,['/api/jobs/old-job']);assert.ok($('#exportReport'));assert.equal(w.sessionStorage.getItem('qinan-active-job'),null);
+});
+
+test('tasks from another API are not offered for recovery',async t=>{
+  let calls=0;const {$,goto}=setup(t,{apiBase:'https://new.test/api',session:{'qinan-active-task':JSON.stringify({id:'foreign-job',source:'https://old.test/api'}),'qinan-active-job':'old-job'},fetch:async()=>{calls++;return {ok:true,json:async()=>[]};}});
+  await goto('check');assert.equal($('#resumeTask'),null);assert.equal(calls,0);
+});
+
+test('poll failures retain the task and selected file; explicit recovery completes without a second POST',async t=>{
+  const waits=[];let posts=0,polls=0;
+  const {$,goto,w,selectFile}=setup(t,{delay:()=>new Promise(r=>waits.push(r)),fetch:async url=>{
+    if(url.endsWith('/analyze')){posts++;return {ok:true,json:async()=>({job_id:'recoverable'})};}
+    polls++;return polls<=3?{ok:false,status:503,json:async()=>({})}:{ok:true,json:async()=>({status:'completed',result:{id:'case-recovered',filename:'voice.mp3',modules:{}}})};
+  }});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
+  for(let i=0;i<3;i++){waits[i]();await tick();}
+  assert.match($('#fileError').textContent,/任务已保留/);assert.equal($('.selected-name').textContent,'voice.mp3');assert.ok($('#resumeTask'));
+  $('#resumeTask').click();await tick();waits[3]();await tick();assert.equal(posts,1);assert.ok($('#exportReport'));assert.equal(w.sessionStorage.getItem('qinan-active-task'),null);
+});
+
+test('an incomplete completed-job response cannot produce a successful report',async t=>{
+  const {$,goto,w,selectFile}=setup(t,{delay:async()=>{},fetch:async url=>({ok:true,json:async()=>url.endsWith('/analyze')?{job_id:'bad-job'}:{status:'completed',result:{}}})});
+  await goto('check');await selectFile(new w.File(['voice'],'voice.mp3'));$('#analyzeButton').click();await tick();
+  assert.match($('#fileError').textContent,/无法读取/);assert.ok($('#resumeTask'));assert.equal($('#exportReport'),null);assert.equal($('.selected-name').textContent,'voice.mp3');
+});
+
+test('service reports preserve escaped summaries, partial module states and collapsed complete data',async t=>{
+  const report={id:'case-direct',filename:'voice.mp3',summary:'<script>unsafe()</script>真实摘要',modules:{audio:{status:'failed'},image:{status:'completed',score:0,threshold:.5}},next_steps:['拨打已保存的号码']};
+  const {$}=setup(t,{url:'https://qinan.test/#report/case-direct',fetch:async()=>({ok:true,json:async()=>report})});await tick();
+  assert.equal($('#workspaceBody script'),null);assert.match($('.result-banner').textContent,/<script>unsafe/);assert.match($('[data-status="unavailable"]').textContent,/未形成判断/);assert.ok($('[data-status="below"]'));
+  assert.equal($('.report-details').open,false);assert.match($('.raw-report').textContent,/case-direct/);assert.match($('.report-next').textContent,/拨打已保存/);
+});
+
+test('homepage motion receives pause/finish lifecycle and real portal identity',async t=>{
+  const calls=[],focus=[];const {$,goto,w}=setup(t,{homeMotion:{finish(){calls.push('finish');},setPaused(value){calls.push(value);},destroy(){calls.push('destroy');}},visual:{setPortalFocus(value){focus.push(value);}}});
+  $('.node-check').dispatchEvent(new w.Event('focus'));assert.equal(focus.at(-1).portalId,'check');
+  $('#motionButton').click();assert.ok(calls.includes(true));await goto('check');assert.ok(calls.includes('finish'));
 });

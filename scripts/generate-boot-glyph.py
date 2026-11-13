@@ -1,158 +1,72 @@
 #!/usr/bin/env python3
-"""Generate original geometric QINAN type and an offline Noto 亲安 lockup.
+"""Generate the original v9 signal poster used inline during startup.
 
-The Latin polygon masters are original artwork, not outlines from a commercial
-font or game asset. Wide, condensed and final masters keep the same commands and
-point count per letter, allowing Anime.js to interpolate their d attributes.
-The unmodified Chinese contours use Noto Sans CJK Bold under the existing OFL:
-public/licenses/Noto-CJK.txt. Requires fonttools, but no network access.
-
-Run from any directory. Only src/boot-glyph.svg is written; the caller inlines
-that artifact in index.html so startup does not wait for a font or SVG request.
+The intact Chinese outlines are Noto Sans CJK Bold (existing OFL at
+public/licenses/Noto-CJK.txt). QINAN is small original polygon lettering.
+No game logos, external font requests, glyph fragments or morph masters.
+Only src/boot-glyph.svg is written. Requires fonttools; no network access.
 """
-
 from pathlib import Path
 import argparse
-import re
 from fontTools.ttLib import TTCollection
 from fontTools.pens.svgPathPen import SVGPathPen
 
-HEIGHT = 200
-TOP = 40
-LETTERS = "QINAN"
-MASTERS = {
-    "wide": {
-        "widths": [240, 96, 230, 232, 230], "gap": 24,
-        "q_stroke": 44, "q_corner": 24, "q_body": 184,
-        "i_stem": 48, "i_bar": 26,
-        "n_stem": 44, "n_shoulder": .68,
-        "a_cap": .32, "a_foot": 46, "a_notch": .72,
-    },
-    "condensed": {
-        "widths": [166, 58, 166, 170, 166], "gap": 32,
-        "q_stroke": 34, "q_corner": 5, "q_body": 182,
-        "i_stem": 36, "i_bar": 18,
-        "n_stem": 37, "n_shoulder": .76,
-        "a_cap": .40, "a_foot": 33, "a_notch": .75,
-    },
-    "final": {
-        "widths": [212, 82, 208, 216, 208], "gap": 27,
-        "q_stroke": 48, "q_corner": 30, "q_body": 185,
-        "i_stem": 50, "i_bar": 23,
-        "n_stem": 48, "n_shoulder": .61,
-        "a_cap": .28, "a_foot": 49, "a_notch": .70,
-    },
-}
-
-
-def contours(letter, width, master):
-    """Return closed local polygons; Q/A inner contours remain open counters."""
-    w, h, m = width, HEIGHT, master
-    if letter == "Q":
-        s, corner, body = m["q_stroke"], m["q_corner"], m["q_body"]
-        inner_corner = max(2, corner * .43)
-        return [
-            [(corner, 0), (w-corner, 0), (w, corner), (w, body-corner),
-             (w-corner, body), (w*1.045, h), (w*.82, h),
-             (w*.64, body), (corner, body), (0, body-corner), (0, corner)],
-            [(s+inner_corner, s), (w-s-inner_corner, s),
-             (w-s, s+inner_corner), (w-s, body-s-inner_corner),
-             (w-s-inner_corner, body-s), (s+inner_corner, body-s),
-             (s, body-s-inner_corner), (s, s+inner_corner)],
-        ]
-    if letter == "I":
-        s, bar, mid = m["i_stem"], m["i_bar"], w/2
-        return [[(0, 0), (w, 0), (w, bar), (mid+s/2, bar),
-                 (mid+s/2, h-bar), (w, h-bar), (w, h), (0, h),
-                 (0, h-bar), (mid-s/2, h-bar), (mid-s/2, bar), (0, bar)]]
-    if letter == "N":
-        s, shoulder = m["n_stem"], h*m["n_shoulder"]
-        return [[(0, h), (0, 0), (s, 0), (w-s, shoulder), (w-s, 0),
-                 (w, 0), (w, h), (w-s, h), (s, h-shoulder), (s, h)]]
-    if letter == "A":
-        cap, foot, notch = m["a_cap"], m["a_foot"], h*m["a_notch"]
-        return [
-            [(0, h), (w*cap, 0), (w*(1-cap), 0), (w, h),
-             (w-foot, h), (w*.68, notch), (w*.32, notch), (foot, h)],
-            [(w*.45, h*.29), (w*.55, h*.29),
-             (w*.65, h*.56), (w*.35, h*.56)],
-        ]
-    raise ValueError(letter)
-
-
-def path_data(polygons, offset):
-    def number(value):
-        return f"{value:.3f}".rstrip("0").rstrip(".")
-    parts = []
-    for polygon in polygons:
-        for index, (x, y) in enumerate(polygon):
-            parts.append(f'{"M" if index == 0 else "L"}{number(x+offset)} {number(y+TOP)}')
-        parts.append("Z")
-    return " ".join(parts)
-
-
-def generate_latin():
-    forms = {}
-    for name, master in MASTERS.items():
-        offset = (1200-sum(master["widths"])-master["gap"]*4)/2
-        paths = []
-        for letter, width in zip(LETTERS, master["widths"]):
-            paths.append(path_data(contours(letter, width, master), offset))
-            offset += width+master["gap"]
-        forms[name] = paths
-    for letter_index in range(5):
-        paths = [forms[name][letter_index] for name in MASTERS]
-        commands = [re.findall(r"[MLZ]", path) for path in paths]
-        counts = [len(re.findall(r"-?\d+(?:\.\d+)?", path)) for path in paths]
-        assert all(command == commands[0] for command in commands)
-        assert len(set(counts)) == 1
-    return forms
-
+LATIN_PATHS = ['M113 40 L265 40 L295 70 L295 195 L265 225 L304.54 240 L256.84 240 L218.68 225 L113 225 L83 195 L83 70 Z M143.9 88 L234.1 88 L247 100.9 L247 164.1 L234.1 177 L143.9 177 L131 164.1 L131 100.9 Z', 'M322 40 L404 40 L404 63 L388 63 L388 217 L404 217 L404 240 L322 240 L322 217 L338 217 L338 63 L322 63 Z', 'M431 240 L431 40 L479 40 L591 162 L591 40 L639 40 L639 240 L591 240 L479 118 L479 240 Z', 'M666 240 L726.48 40 L821.52 40 L882 240 L833 240 L812.88 180 L735.12 180 L715 240 Z M763.2 98 L784.8 98 L806.4 152 L741.6 152 Z', 'M909 240 L909 40 L957 40 L1069 162 L1069 40 L1117 40 L1117 240 L1069 240 L957 118 L957 240 Z']
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--font", default="/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")
+    parser.add_argument('--font',default='/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc')
     args = parser.parse_args()
-    latin = generate_latin()
     collection = TTCollection(args.font)
     font = collection.fonts[0]
-    glyph_set, cmap = font.getGlyphSet(), font.getBestCmap()
+    glyphs, cmap = font.getGlyphSet(), font.getBestCmap()
     chinese = []
-    for character, name in [("亲", "qin"), ("安", "an")]:
-        pen = SVGPathPen(glyph_set)
-        glyph_set[cmap[ord(character)]].draw(pen)
-        chinese.append((name, pen.getCommands()))
-
+    for char, name in [('亲','qin'),('安','an')]:
+        pen = SVGPathPen(glyphs)
+        glyphs[cmap[ord(char)]].draw(pen)
+        chinese.append((name,pen.getCommands()))
     lines = [
-        '<svg class="boot-glyph" viewBox="0 0 1200 540" width="1200" height="540" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">',
-        '  <!-- Original QINAN polygon type; unmodified Noto Sans CJK Bold Chinese contours, OFL /licenses/Noto-CJK.txt. Generated by scripts/generate-boot-glyph.py. -->',
+        '<svg class="boot-glyph" viewBox="0 0 1200 640" width="1200" height="640" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">',
+        '  <!-- Fixed Noto CJK contours, OFL /licenses/Noto-CJK.txt; original QINAN signal poster. Generated by scripts/generate-boot-glyph.py. -->',
         '  <defs>',
-        '    <mask id="boot-type-cut" x="0" y="0" width="1200" height="540" maskUnits="userSpaceOnUse" mask-type="luminance"><rect width="1200" height="540" fill="white"/><rect y="132" width="1200" height="6" fill="black"/></mask>',
     ]
-    for name, path in chinese:
+    for name,path in chinese:
         lines.append(f'    <path id="boot-cn-{name}" fill-rule="nonzero" d="{path}"/>')
-    lines.extend(['  </defs>', '  <g class="boot-type-word">'])
-    for index in range(5):
-        attributes = ' '.join(f'data-form-{name}="{latin[name][index]}"' for name in MASTERS)
-        lines.append(f'    <path id="boot-type-letter-{index}" data-boot-letter="{index}" d="{latin["wide"][index]}" {attributes} fill-rule="evenodd"/>')
-    lines.extend(['  </g>', '  <g class="boot-type-echo" opacity="0" fill="none" stroke="currentColor" stroke-width="1.5">'])
-    for index in range(5):
-        lines.append(f'    <use href="#boot-type-letter-{index}"/>')
-    lines.extend(['  </g>', '  <g class="boot-type-cn">'])
-    # Chinese cap height is 215 units, intentionally as strong as the 200-unit
-    # Latin word. The lockup remains solid and unchanged through every morph.
-    scale = 215/940
-    baseline = 295+850*scale
-    left_offsets = [367-52*scale, 833-947*scale]
-    for (name, _), offset in zip(chinese, left_offsets):
-        lines.append(f'    <use href="#boot-cn-{name}" transform="translate({offset:.6f} {baseline:.6f}) scale({scale:.9f} -{scale:.9f})"/>')
-    lines.extend(['  </g>', '</svg>'])
-    destination = Path(__file__).resolve().parents[1] / 'src' / 'boot-glyph.svg'
-    destination.write_text('\n'.join(lines)+'\n', encoding='utf-8')
+    lines.extend([
+        '  </defs>',
+        '  <g class="boot-signal-register" fill="none" stroke="#c2ff00" stroke-width="4">',
+        '    <path d="M18 70V8H208 M1036 8H1080V50 M18 470V512H52 M1028 530H1080V482"/>',
+        '    <path d="M18 536H236" stroke-width="2"/><path d="M780 536H1080" stroke-width="2"/>',
+        '  </g>',
+        '  <g class="boot-signal-blue" fill="#275dff">',
+        '    <path d="M1112 82H1182V316H1140V278H1112Z"/><path d="M1112 346H1182V382H1112Z"/>',
+        '  </g>',
+        '  <g class="boot-signal-brand" fill="#f1f0e5">',
+        '    <use href="#boot-cn-qin" transform="translate(36 462) scale(.52 -.52)"/>',
+        '    <use href="#boot-cn-an" transform="translate(574 462) scale(.52 -.52)"/>',
+        '  </g>',
+        '  <g class="boot-signal-lime">',
+        '    <path d="M18 552H498L520 574V626H18Z" fill="#c2ff00"/>',
+        '    <g class="boot-signal-code" fill="#080908" fill-rule="evenodd">',
+        '      <g transform="translate(30.91 558.8) scale(.23)">',
+    ])
+    for path in LATIN_PATHS:
+        lines.append(f'        <path d="{path}"/>')
+    lines.extend([
+        '      </g>',
+        '      <path d="M394 574H402V604H394Z M410 574H414V604H410Z M422 574H436V604H422Z M444 574H450V604H444Z M460 574H466V604H460Z M474 574H480V604H474Z"/>',
+        '    </g>',
+        '  </g>',
+        '  <g class="boot-signal-lock" fill="none" stroke="#f1f0e5" stroke-width="3">',
+        '    <path d="M562 568H588V594 M562 626V604H588 M1014 568H988V594 M1014 626V604H988"/>',
+        '    <path d="M620 597H952" stroke-width="1"/><path d="M786 580V614 M769 597H803" stroke="#c2ff00"/>',
+        '  </g>',
+        '</svg>',
+    ])
+    target = Path(__file__).resolve().parents[1] / 'src' / 'boot-glyph.svg'
+    target.write_text('\n'.join(lines)+'\n',encoding='utf-8')
     collection.close()
-    counts = [len(re.findall(r"-?\d+(?:\.\d+)?", path)) for path in latin["wide"]]
-    print(f'Generated {destination}: 5 original letters, 3 compatible masters, numeric counts {counts}.')
-
+    print(f'Generated {target}: fixed Chinese hero, auxiliary QINAN, local color registration.')
 
 if __name__ == '__main__':
     main()
