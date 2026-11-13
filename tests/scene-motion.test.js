@@ -12,11 +12,11 @@ function controlledDriver() {
   } };
 }
 
-test('six-part motion shares a promise during travel and runs the same path backwards', async () => {
+test('whole-impression motion shares a promise during travel and runs the same path backwards', async () => {
   const driver = controlledDriver(), progress = [];
   const motion = createSealMotion({ animate: driver.animate, onUpdate: value => progress.push(value) });
   const forward = motion.toggle(); assert.strictEqual(motion.toggle(), forward);
-  assert.equal(driver.calls.length, 1); assert.equal(driver.calls[0].options.duration, 1150);
+  assert.equal(driver.calls.length, 1); assert.equal(driver.calls[0].options.duration, 1350);
   driver.calls[0].advance(.46); assert.equal(motion.progress, .46); assert.equal(motion.form, 'shield');
   driver.calls[0].finish(); assert.equal(await forward, 'slogan'); assert.equal(motion.busy, false);
   const reverse = motion.toggle(); assert.equal(driver.calls[1].options.progress, 0);
@@ -41,10 +41,10 @@ test('pause, focus and hidden lifecycle callers can settle to the requested read
 
 test('immediate and mobile modes preserve terminal forms and do not create idle animations', async () => {
   const driver = controlledDriver(); let immediate = true;
-  const motion = createSealMotion({ animate: driver.animate, immediate: () => immediate, duration: () => 800 });
+  const motion = createSealMotion({ animate: driver.animate, immediate: () => immediate, duration: () => 900 });
   assert.equal(await motion.toggle(), 'slogan'); assert.equal(driver.calls.length, 0);
   assert.equal(await motion.toggle(), 'shield'); assert.equal(driver.calls.length, 0);
-  immediate = false; const pending = motion.toggle(); assert.equal(driver.calls[0].options.duration, 800);
+  immediate = false; const pending = motion.toggle(); assert.equal(driver.calls[0].options.duration, 900);
   motion.settle(); assert.equal(await pending, 'slogan'); motion.dispose();
 });
 

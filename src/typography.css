@@ -1,0 +1,40 @@
+/* Local display-only subsets; the default UI remains readable while loading. */
+@font-face {
+  font-family: 'Qinan Display';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/qinan-display.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Qinan Signal';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/qinan-signal.woff2') format('woff2');
+}
+.display-fonts-ready .intro-copy h1 {
+  font-family: 'Qinan Display',var(--font);
+  font-weight: 400;
+  font-size: clamp(76px,6.6vw,96px);
+  line-height: 1.08;
+  letter-spacing: 0;
+  padding-right: .12em;
+}
+.display-fonts-ready :is(.edition,.stage-index,.art-caption,.bottom-quote,.motion-tools>span,.node-top small b,.brand strong>span,.site-footer) {
+  font-family: 'Qinan Signal',var(--mono),var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.display-fonts-ready .edition { font-weight: 500; letter-spacing: .09em; }
+.display-fonts-ready .node-top small b { font-weight: 600; }
+.display-fonts-ready .brand strong>span { font-weight: 600; letter-spacing: .1em; }
+@media (min-width:1000px) {
+  /* This repeated instruction otherwise reaches the first portal at 800px. */
+  .intro-coordinate { display: none; }
+}
+@media (max-width:999px) {
+  .display-fonts-ready .intro-copy h1 { font-size: 76px; }
+}
+@media (max-width:699px) {
+  .display-fonts-ready .intro-copy h1 { font-size: clamp(62px,17vw,84px); line-height: 1.1; }
+}

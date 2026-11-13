@@ -1,4 +1,4 @@
-/* The static composition remains when the optional 3D scene cannot load. */
+/* Local CSS keeps the signal field moving even without the optional WebGL scene. */
 .stage-background { z-index: 0; background: #080908; isolation: isolate; }
 .stage-background::before {
   content: ''; position: absolute; left: 35%; top: 11%; width: 58%; height: 65%;
@@ -19,10 +19,30 @@
 }
 .stage-background .field-axis-y {
   top: 29%; bottom: 24%; left: 66%; width: 25%; height: auto;
-  background-color: transparent;
+  overflow: hidden; background: transparent;
+  clip-path: polygon(0 0,100% 12%,100% 100%,0 90%);
+}
+.stage-background .field-axis-y::before {
+  content: ''; position: absolute; inset: -24px; pointer-events: none;
   background-image: linear-gradient(#99ac6b0c 1px,transparent 1px),linear-gradient(90deg,#99ac6b0c 1px,transparent 1px);
   background-size: 24px 24px;
-  clip-path: polygon(0 0,100% 12%,100% 100%,0 90%);
+  animation: field-grid-feed 18s linear infinite;
+}
+.stage-background .field-axis-y::after {
+  content: ''; position: absolute; left: 9px; top: 32px; width: 18px; height: 5px;
+  background: #275dff; pointer-events: none;
+  animation: field-calibration-tab 6.4s ease-in-out infinite;
+}
+@keyframes field-grid-feed { to { transform: translateY(24px); } }
+@keyframes field-calibration-tab {
+  0%,100% { transform: translateX(0); }
+  40.625%,59.375% { transform: translateX(64px); }
+}
+/* The real scene owns these phases when available. In fallback they freeze at
+   the current frame on pause, focus, hidden tabs or before the entrance ends. */
+:is(html[data-scene-renderer="webgl"],html.home-prepared,html.home-arriving,html.scene-ambient-paused,body.feature-open) .stage-background .field-axis-y::before,
+:is(html[data-scene-renderer="webgl"],html.home-prepared,html.home-arriving,html.scene-ambient-paused,body.feature-open) .stage-background .field-axis-y::after {
+  animation-play-state: paused;
 }
 /* A render failure must leave these flat panels visible behind the local SVG. */
 #world .scene-fallback { background: transparent !important; }
@@ -33,6 +53,7 @@
   .stage-background .field-axis-y { left: 75%; top: 38%; bottom: 25%; width: 25%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage-background,.stage-background::before,.stage-background::after,.stage-background .field-axis { animation: none; transition: none; }
+  .stage-background,.stage-background::before,.stage-background::after,.stage-background .field-axis,
+  .stage-background .field-axis::before,.stage-background .field-axis::after { animation: none; transition: none; }
 }
 @media print { .stage-background { display: none !important; } }

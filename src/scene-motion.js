@@ -1,5 +1,5 @@
-/** A single reversible progress value keeps all six plates on the same mechanical path. */
-export function createSealMotion({ animate, onUpdate = () => {}, immediate = () => false, duration = () => 1150 } = {}) {
+/** A single reversible progress value keeps the whole seal and its frame on one mechanical path. */
+export function createSealMotion({ animate, onUpdate = () => {}, immediate = () => false, duration = () => 1350 } = {}) {
   const state = { progress: 0 };
   let form = 'shield', target = null, animation = null, pending = null, resolvePending = null, disposed = false;
 

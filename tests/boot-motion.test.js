@@ -74,7 +74,7 @@ test('real Anime aligns local signal blocks, keeps the Chinese poster fixed, and
   reveal.seek(599);
   assert.equal(root.hidden,false,'completion cleanup is not used to fake the reveal midpoint');
   reveal.seek(600);
-  assert.deepEqual(await boot.finished,{reason:'ready'});
+  assert.deepEqual(await boot.finished,{variant:'first',reason:'ready'});
   assert.equal(root.hidden,true);
   assert.equal(root.style.clipPath,'');
   assert.equal(w.document.querySelector('#home').hasAttribute('inert'),false);
