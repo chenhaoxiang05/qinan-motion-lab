@@ -117,7 +117,7 @@ export function initApp({animate,utils,createSpring,createLayout,visual,delay=ms
     if(target==='home'){
       document.body.classList.remove('feature-open');visual.focus(false);
       if(workspace.open){
-        const finish=()=>{if(revision!==routeRevision)return;workspace.close();body.innerHTML='';lastPortal?.focus({preventScroll:true});};
+        const finish=()=>{if(revision!==routeRevision)return;if(lastPortal)lastPortal.style.visibility='';workspace.close();body.innerHTML='';lastPortal?.focus({preventScroll:true});};
         if(motionEnabled()&&modalLayout&&lastPortal){modalLayout.update(()=>{workspace.close();lastPortal.style.visibility='';},{duration:420}).then(finish);}else finish();
       }
       resumeAmbient();return;
