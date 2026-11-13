@@ -1,0 +1,8 @@
+{
+  "name": "qinan-motion-lab",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "node --check dist/app.js"
+  }
+}
